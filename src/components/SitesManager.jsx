@@ -5,6 +5,8 @@ import SiteForm from './SiteForm';
 
 export default function SitesManager({ teamId, initialSites }) {
   const [sites, setSites] = useState(initialSites);
+  const [scanning, setScanning] = useState(null);
+  const [scanMessage, setScanMessage] = useState('');
 
   function handleSiteAdded(site) {
     setSites((prev) => [...prev, site]);
@@ -33,9 +35,44 @@ export default function SitesManager({ teamId, initialSites }) {
     }
   }
 
+  async function handleScan(siteId, siteName) {
+    setScanning(siteId);
+    setScanMessage('');
+
+    try {
+      const res = await fetch('/api/scan/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Scan failed');
+      }
+
+      setScanMessage(`${siteName} scanned — Performance: ${data.mobile.performance} (mobile), ${data.desktop.performance} (desktop)`);
+    } catch (err) {
+      setScanMessage(`Error: ${err.message}`);
+    } finally {
+      setScanning(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <SiteForm teamId={teamId} onSiteAdded={handleSiteAdded} />
+
+      {scanMessage && (
+        <div className={`rounded-lg p-3 text-sm ${
+          scanMessage.startsWith('Error')
+            ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+            : 'bg-green-500/10 border border-green-500/20 text-green-400'
+        }`}>
+          {scanMessage}
+        </div>
+      )}
 
       {sites.length === 0 ? (
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-8 text-center">
@@ -75,7 +112,14 @@ export default function SitesManager({ teamId, initialSites }) {
                       {site.enabled ? 'Active' : 'Paused'}
                     </button>
                   </td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="px-5 py-3 text-right space-x-3">
+                    <button
+                      onClick={() => handleScan(site.id, site.name)}
+                      disabled={scanning === site.id}
+                      className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {scanning === site.id ? 'Scanning...' : 'Scan Now'}
+                    </button>
                     <button
                       onClick={() => handleDelete(site.id)}
                       className="text-xs text-red-400 hover:text-red-300 transition-colors"

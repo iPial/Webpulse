@@ -4,6 +4,9 @@ import { useState } from 'react';
 
 export default function IntegrationsManager({ teamId, initialIntegrations }) {
   const [integrations, setIntegrations] = useState(initialIntegrations);
+  const [psiApiKey, setPsiApiKey] = useState(
+    integrations.find((i) => i.type === 'pagespeed')?.config?.apiKey || ''
+  );
   const [slackUrl, setSlackUrl] = useState(
     integrations.find((i) => i.type === 'slack')?.config?.webhookUrl || ''
   );
@@ -68,6 +71,7 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
     }
   }
 
+  const psiIntegration = integrations.find((i) => i.type === 'pagespeed');
   const slackIntegration = integrations.find((i) => i.type === 'slack');
   const emailIntegration = integrations.find((i) => i.type === 'email');
 
@@ -82,6 +86,44 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
           {message}
         </div>
       )}
+
+      {/* Google PageSpeed API Key */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center">
+              <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Google PageSpeed API</h3>
+              <p className="text-xs text-gray-400">Required for scanning sites. Get a key from Google Cloud Console.</p>
+            </div>
+          </div>
+          {psiIntegration && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">
+              Configured
+            </span>
+          )}
+        </div>
+        <div className="flex gap-3">
+          <input
+            type="password"
+            value={psiApiKey}
+            onChange={(e) => setPsiApiKey(e.target.value)}
+            placeholder="AIza..."
+            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            onClick={() => saveIntegration('pagespeed', { apiKey: psiApiKey })}
+            disabled={saving === 'pagespeed' || !psiApiKey}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {saving === 'pagespeed' ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
 
       {/* Slack */}
       <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">

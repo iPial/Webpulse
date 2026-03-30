@@ -34,8 +34,19 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Site not found' }, { status: 404 });
     }
 
+    // Get team's PageSpeed API key from integrations (fall back to env var)
+    const { data: psiConfig } = await supabase
+      .from('integrations')
+      .select('config')
+      .eq('team_id', site.team_id)
+      .eq('type', 'pagespeed')
+      .eq('enabled', true)
+      .maybeSingle();
+
+    const apiKey = psiConfig?.config?.apiKey || process.env.GOOGLE_PSI_API_KEY;
+
     // Run PageSpeed audits (mobile + desktop in parallel)
-    const { mobile, desktop } = await runFullAudit(site.url);
+    const { mobile, desktop } = await runFullAudit(site.url, { apiKey });
 
     // Save both results to DB
     const [mobileResult, desktopResult] = await Promise.all([

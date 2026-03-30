@@ -4,9 +4,9 @@ const PSI_API_URL = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
 // Core API Call
 // ============================================
 
-export async function runPageSpeedAudit(url, strategy = 'mobile') {
-  const apiKey = process.env.GOOGLE_PSI_API_KEY;
-  if (!apiKey) throw new Error('GOOGLE_PSI_API_KEY is not set');
+export async function runPageSpeedAudit(url, strategy = 'mobile', { apiKey: overrideKey } = {}) {
+  const apiKey = overrideKey || process.env.GOOGLE_PSI_API_KEY;
+  if (!apiKey) throw new Error('No PageSpeed API key configured. Add one in Settings > Integrations.');
 
   // PSI API expects multiple category params
   const categoryUrl = `${PSI_API_URL}?url=${encodeURIComponent(url)}&key=${apiKey}&strategy=${strategy}&category=performance&category=accessibility&category=best-practices&category=seo`;
@@ -25,10 +25,11 @@ export async function runPageSpeedAudit(url, strategy = 'mobile') {
 }
 
 // Run both mobile and desktop audits for a site
-export async function runFullAudit(url) {
+export async function runFullAudit(url, { apiKey } = {}) {
+  const opts = apiKey ? { apiKey } : {};
   const [mobile, desktop] = await Promise.all([
-    runPageSpeedAudit(url, 'mobile'),
-    runPageSpeedAudit(url, 'desktop'),
+    runPageSpeedAudit(url, 'mobile', opts),
+    runPageSpeedAudit(url, 'desktop', opts),
   ]);
 
   return { mobile, desktop };
