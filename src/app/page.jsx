@@ -3,6 +3,7 @@ import { getUserTeams, getLatestResults } from '@/lib/db';
 import { createServerSupabase } from '@/lib/supabase';
 import SiteCard from '@/components/SiteCard';
 import OverviewStats from '@/components/OverviewStats';
+import CreateTeamForm from '@/components/CreateTeamForm';
 
 export default async function OverviewPage() {
   const cookieStore = await cookies();
@@ -15,7 +16,7 @@ export default async function OverviewPage() {
 
   const teams = await getUserTeams(cookieStore);
   if (teams.length === 0) {
-    return <EmptyState message="Create a team to get started." showSetup />;
+    return <EmptyState message="Create a team to get started." showCreateTeam />;
   }
 
   const teamId = teams[0].id;
@@ -99,7 +100,7 @@ function computeStats(sites) {
   };
 }
 
-function EmptyState({ message, showSetup }) {
+function EmptyState({ message, showSetup, showCreateTeam }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
@@ -108,6 +109,7 @@ function EmptyState({ message, showSetup }) {
         </svg>
       </div>
       <p className="text-gray-400 mb-4">{message}</p>
+      {showCreateTeam && <CreateTeamForm />}
       {showSetup && (
         <a
           href="/settings"
