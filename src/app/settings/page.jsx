@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { ensureTeam, getSites } from '@/lib/db';
 import SitesManager from '@/components/SitesManager';
+import ScheduleBanner from '@/components/ScheduleBanner';
 
 export default async function SettingsPage() {
   const cookieStore = await cookies();
@@ -23,6 +24,7 @@ export default async function SettingsPage() {
         </Link>
       </div>
 
+      <ScheduleBanner />
       <SitesManager teamId={team.id} initialSites={sites} />
     </div>
   );

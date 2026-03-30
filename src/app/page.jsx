@@ -1,8 +1,10 @@
 import { cookies } from 'next/headers';
-import { ensureTeam, getLatestResults } from '@/lib/db';
+import { ensureTeam, getLatestResults, getRecentActivity } from '@/lib/db';
 import { createServerSupabase } from '@/lib/supabase';
 import SiteCard from '@/components/SiteCard';
 import OverviewStats from '@/components/OverviewStats';
+import OverviewActions from '@/components/OverviewActions';
+import ActivityFeed from '@/components/ActivityFeed';
 
 export default async function OverviewPage() {
   const cookieStore = await cookies();
@@ -14,15 +16,31 @@ export default async function OverviewPage() {
   }
 
   const team = await ensureTeam(cookieStore);
-  const results = await getLatestResults(cookieStore, team.id);
+  const [results, activity] = await Promise.all([
+    getLatestResults(cookieStore, team.id),
+    getRecentActivity(cookieStore, team.id),
+  ]);
 
-  // Group results by site
+  // Group results by site, tracking previous results for regression
   const siteMap = new Map();
   for (const row of results) {
     if (!siteMap.has(row.site_id)) {
-      siteMap.set(row.site_id, { site: row.sites, mobile: null, desktop: null });
+      siteMap.set(row.site_id, {
+        site: row.sites,
+        mobile: null,
+        desktop: null,
+        prevMobile: null,
+        prevDesktop: null,
+      });
     }
-    siteMap.get(row.site_id)[row.strategy] = row;
+    const entry = siteMap.get(row.site_id);
+    if (!entry[row.strategy]) {
+      entry[row.strategy] = row;
+    } else if (row.strategy === 'mobile' && !entry.prevMobile) {
+      entry.prevMobile = row;
+    } else if (row.strategy === 'desktop' && !entry.prevDesktop) {
+      entry.prevDesktop = row;
+    }
   }
 
   const sites = Array.from(siteMap.values());
@@ -31,29 +49,37 @@ export default async function OverviewPage() {
     return <EmptyState message="No scan results yet. Add sites in Settings and run your first scan." showSetup />;
   }
 
-  // Compute aggregate stats
   const stats = computeStats(sites);
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Overview</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          {sites.length} site{sites.length !== 1 ? 's' : ''} monitored
-        </p>
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Overview</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            {sites.length} site{sites.length !== 1 ? 's' : ''} monitored
+          </p>
+        </div>
+        <OverviewActions teamId={team.id} />
       </div>
 
       <OverviewStats stats={stats} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-8">
-        {sites.map(({ site, mobile, desktop }) => (
+        {sites.map(({ site, mobile, desktop, prevMobile, prevDesktop }) => (
           <SiteCard
             key={site.id}
             site={site}
             mobile={mobile}
             desktop={desktop}
+            prevMobile={prevMobile}
+            prevDesktop={prevDesktop}
           />
         ))}
+      </div>
+
+      <div className="mt-8">
+        <ActivityFeed activity={activity} />
       </div>
     </div>
   );

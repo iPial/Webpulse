@@ -259,6 +259,23 @@ export async function getLatestResults(cookieStore, teamId) {
   return Array.from(latest.values());
 }
 
+export async function getRecentActivity(cookieStore, teamId, { limit = 20 } = {}) {
+  const supabase = createServerSupabase(cookieStore);
+  const { data: sites } = await supabase.from('sites').select('id').eq('team_id', teamId);
+  if (!sites?.length) return [];
+
+  const siteIds = sites.map((s) => s.id);
+  const { data, error } = await supabase
+    .from('scan_results')
+    .select('id, strategy, performance, scanned_at, site_id, sites(name, url)')
+    .in('site_id', siteIds)
+    .order('scanned_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data;
+}
+
 export async function getSiteResults(cookieStore, siteId, { limit = 10 } = {}) {
   const supabase = createServerSupabase(cookieStore);
   const { data, error } = await supabase

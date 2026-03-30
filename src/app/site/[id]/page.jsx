@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { getSiteById, getSiteResults } from '@/lib/db';
 import StrategyTabs from '@/components/StrategyTabs';
 import AIRecommendations from '@/components/AIRecommendations';
+import ScanHistoryTable from '@/components/ScanHistoryTable';
 
 export default async function SiteDetailPage({ params }) {
   const { id } = await params;
@@ -19,7 +20,7 @@ export default async function SiteDetailPage({ params }) {
     return <ErrorState message="Site not found." />;
   }
 
-  const results = await getSiteResults(cookieStore, siteId, { limit: 4 });
+  const results = await getSiteResults(cookieStore, siteId, { limit: 20 });
 
   // Find latest mobile and desktop results
   const mobile = results.find((r) => r.strategy === 'mobile') || null;
@@ -43,6 +44,7 @@ export default async function SiteDetailPage({ params }) {
       <div className="mt-6 space-y-6">
         <StrategyTabs mobile={mobile} desktop={desktop} />
         <AIRecommendations siteId={site.id} />
+        <ScanHistoryTable results={results} />
       </div>
     </div>
   );

@@ -2,11 +2,13 @@ import Link from 'next/link';
 import ScoreRing from './ScoreRing';
 import SeverityCounts from './SeverityCounts';
 
-export default function SiteCard({ site, mobile, desktop }) {
+export default function SiteCard({ site, mobile, desktop, prevMobile, prevDesktop }) {
   const result = mobile || desktop;
   if (!result) return null;
 
+  const prev = mobile ? prevMobile : prevDesktop;
   const audits = result.audits || {};
+  const perfDelta = prev ? result.performance - prev.performance : null;
 
   return (
     <Link
@@ -17,8 +19,22 @@ export default function SiteCard({ site, mobile, desktop }) {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-white truncate">{site.name}</h3>
           <p className="text-xs text-gray-500 truncate mt-0.5">{site.url}</p>
+          <p className="text-[10px] text-gray-600 mt-0.5">
+            {formatRelativeTime(result.scanned_at)}
+          </p>
         </div>
-        <StrategyBadge strategy={mobile ? 'mobile' : 'desktop'} />
+        <div className="flex items-center gap-2 shrink-0">
+          {perfDelta !== null && perfDelta !== 0 && (
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+              perfDelta > 0
+                ? 'bg-green-500/10 text-green-400'
+                : 'bg-red-500/10 text-red-400'
+            }`}>
+              {perfDelta > 0 ? '+' : ''}{perfDelta}
+            </span>
+          )}
+          <StrategyBadge strategy={mobile ? 'mobile' : 'desktop'} />
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-2 mb-4">
@@ -46,7 +62,7 @@ export default function SiteCard({ site, mobile, desktop }) {
 
 function StrategyBadge({ strategy }) {
   return (
-    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded bg-gray-800 text-gray-400">
+    <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded bg-gray-800 text-gray-400">
       {strategy}
     </span>
   );
@@ -59,4 +75,20 @@ function VitalPill({ label, value }) {
       {label} {value}
     </span>
   );
+}
+
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return '';
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }

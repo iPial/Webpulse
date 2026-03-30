@@ -1,19 +1,12 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSiteById, getSiteResults } from '@/lib/db';
+import { createServiceSupabase } from '@/lib/supabase';
 
 // POST /api/ai
 // Body: { siteId }
 // Returns AI-generated recommendations based on latest scan results
 export async function POST(request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'AI analysis is not configured. Set ANTHROPIC_API_KEY.' },
-      { status: 503 }
-    );
-  }
-
   try {
     const cookieStore = await cookies();
     const body = await request.json();
@@ -26,6 +19,24 @@ export async function POST(request) {
     const site = await getSiteById(cookieStore, parseInt(siteId, 10));
     if (!site) {
       return NextResponse.json({ error: 'Site not found' }, { status: 404 });
+    }
+
+    // Get team's Anthropic API key, fall back to env var
+    const supabase = createServiceSupabase();
+    const { data: aiConfig } = await supabase
+      .from('integrations')
+      .select('config')
+      .eq('team_id', site.team_id)
+      .eq('type', 'anthropic')
+      .eq('enabled', true)
+      .maybeSingle();
+
+    const apiKey = aiConfig?.config?.apiKey || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'AI not configured. Add your Anthropic API key in Settings > Integrations.' },
+        { status: 503 }
+      );
     }
 
     // Get latest results (mobile + desktop)

@@ -1,12 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import SiteForm from './SiteForm';
 
 export default function SitesManager({ teamId, initialSites }) {
   const [sites, setSites] = useState(initialSites);
   const [scanning, setScanning] = useState(null);
-  const [scanMessage, setScanMessage] = useState('');
+  const [scanMessages, setScanMessages] = useState({}); // { siteId: { type, text } }
+
+  // Auto-clear messages after 10s
+  useEffect(() => {
+    const ids = Object.keys(scanMessages);
+    if (ids.length === 0) return;
+
+    const timer = setTimeout(() => {
+      setScanMessages({});
+    }, 10000);
+
+    return () => clearTimeout(timer);
+  }, [scanMessages]);
 
   function handleSiteAdded(site) {
     setSites((prev) => [...prev, site]);
@@ -32,12 +44,13 @@ export default function SitesManager({ teamId, initialSites }) {
 
     if (res.ok) {
       setSites((prev) => prev.filter((s) => s.id !== siteId));
+      setScanMessages((prev) => { const next = { ...prev }; delete next[siteId]; return next; });
     }
   }
 
   async function handleScan(siteId, siteName) {
     setScanning(siteId);
-    setScanMessage('');
+    setScanMessages((prev) => ({ ...prev, [siteId]: { type: 'info', text: 'Scanning...' } }));
 
     try {
       const res = await fetch('/api/scan/manual', {
@@ -49,12 +62,21 @@ export default function SitesManager({ teamId, initialSites }) {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Scan failed');
+        throw new Error(data.details || data.error || 'Scan failed');
       }
 
-      setScanMessage(`${siteName} scanned — Performance: ${data.mobile.performance} (mobile), ${data.desktop.performance} (desktop)`);
+      setScanMessages((prev) => ({
+        ...prev,
+        [siteId]: {
+          type: 'success',
+          text: `Perf: ${data.mobile.performance} (mobile) / ${data.desktop.performance} (desktop)`,
+        },
+      }));
     } catch (err) {
-      setScanMessage(`Error: ${err.message}`);
+      setScanMessages((prev) => ({
+        ...prev,
+        [siteId]: { type: 'error', text: err.message },
+      }));
     } finally {
       setScanning(null);
     }
@@ -63,16 +85,6 @@ export default function SitesManager({ teamId, initialSites }) {
   return (
     <div className="space-y-6">
       <SiteForm teamId={teamId} onSiteAdded={handleSiteAdded} />
-
-      {scanMessage && (
-        <div className={`rounded-lg p-3 text-sm ${
-          scanMessage.startsWith('Error')
-            ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-            : 'bg-green-500/10 border border-green-500/20 text-green-400'
-        }`}>
-          {scanMessage}
-        </div>
-      )}
 
       {sites.length === 0 ? (
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-8 text-center">
@@ -86,53 +98,105 @@ export default function SitesManager({ teamId, initialSites }) {
                 <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Name</th>
                 <th className="text-left text-xs font-medium text-gray-400 px-3 py-3">URL</th>
                 <th className="text-center text-xs font-medium text-gray-400 px-3 py-3">Frequency</th>
+                <th className="text-center text-xs font-medium text-gray-400 px-3 py-3">Next Scan</th>
                 <th className="text-center text-xs font-medium text-gray-400 px-3 py-3">Status</th>
                 <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {sites.map((site) => (
-                <tr key={site.id} className="border-b border-gray-800/50 last:border-0">
-                  <td className="px-5 py-3 text-sm text-white font-medium">{site.name}</td>
-                  <td className="px-3 py-3 text-sm text-gray-400 max-w-xs truncate">{site.url}</td>
-                  <td className="px-3 py-3 text-center">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400">
-                      {site.scan_frequency}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3 text-center">
-                    <button
-                      onClick={() => handleToggle(site.id, site.enabled)}
-                      className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
-                        site.enabled
-                          ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
-                          : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
-                      }`}
-                    >
-                      {site.enabled ? 'Active' : 'Paused'}
-                    </button>
-                  </td>
-                  <td className="px-5 py-3 text-right space-x-3">
-                    <button
-                      onClick={() => handleScan(site.id, site.name)}
-                      disabled={scanning === site.id}
-                      className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {scanning === site.id ? 'Scanning...' : 'Scan Now'}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(site.id)}
-                      className="text-xs text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {sites.map((site) => {
+                const msg = scanMessages[site.id];
+                return (
+                  <tr key={site.id} className="border-b border-gray-800/50 last:border-0">
+                    <td className="px-5 py-3">
+                      <div className="text-sm text-white font-medium">{site.name}</div>
+                      {msg && (
+                        <div className={`text-xs mt-1 ${
+                          msg.type === 'error' ? 'text-red-400' :
+                          msg.type === 'success' ? 'text-green-400' :
+                          'text-blue-400'
+                        }`}>
+                          {msg.type === 'info' && (
+                            <span className="inline-flex items-center gap-1">
+                              <span className="w-3 h-3 border-2 border-gray-600 border-t-blue-400 rounded-full animate-spin" />
+                              {msg.text}
+                            </span>
+                          )}
+                          {msg.type !== 'info' && msg.text}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-gray-400 max-w-xs truncate">{site.url}</td>
+                    <td className="px-3 py-3 text-center">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400">
+                        {site.scan_frequency}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-xs text-gray-500">
+                      {site.enabled ? getNextScanTime(site.scan_frequency) : '—'}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <button
+                        onClick={() => handleToggle(site.id, site.enabled)}
+                        className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
+                          site.enabled
+                            ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                            : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                        }`}
+                      >
+                        {site.enabled ? 'Active' : 'Paused'}
+                      </button>
+                    </td>
+                    <td className="px-5 py-3 text-right space-x-3">
+                      <button
+                        onClick={() => handleScan(site.id, site.name)}
+                        disabled={scanning === site.id}
+                        className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {scanning === site.id ? (
+                          <span className="inline-flex items-center gap-1">
+                            <span className="w-3 h-3 border-2 border-gray-600 border-t-blue-400 rounded-full animate-spin" />
+                            Scanning
+                          </span>
+                        ) : 'Scan Now'}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(site.id)}
+                        className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
     </div>
   );
+}
+
+function getNextScanTime(frequency) {
+  const now = new Date();
+  const next = new Date(now);
+
+  // Next 06:00 UTC
+  next.setUTCHours(6, 0, 0, 0);
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+
+  if (frequency === 'weekly') {
+    // Next Monday at 06:00 UTC
+    while (next.getUTCDay() !== 1) {
+      next.setUTCDate(next.getUTCDate() + 1);
+    }
+  } else if (frequency === 'monthly') {
+    // 1st of next month at 06:00 UTC
+    next.setUTCMonth(next.getUTCMonth() + 1, 1);
+    next.setUTCHours(6, 0, 0, 0);
+  }
+
+  return next.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+    ' ' + next.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 }

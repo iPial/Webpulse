@@ -7,6 +7,9 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
   const [psiApiKey, setPsiApiKey] = useState(
     integrations.find((i) => i.type === 'pagespeed')?.config?.apiKey || ''
   );
+  const [anthropicKey, setAnthropicKey] = useState(
+    integrations.find((i) => i.type === 'anthropic')?.config?.apiKey || ''
+  );
   const [slackUrl, setSlackUrl] = useState(
     integrations.find((i) => i.type === 'slack')?.config?.webhookUrl || ''
   );
@@ -14,6 +17,7 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
     integrations.find((i) => i.type === 'email')?.config?.emails || ''
   );
   const [saving, setSaving] = useState('');
+  const [testing, setTesting] = useState('');
   const [message, setMessage] = useState('');
 
   async function saveIntegration(type, config) {
@@ -56,6 +60,27 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
     }
   }
 
+  async function testIntegration(type) {
+    setTesting(type);
+    setMessage('');
+    try {
+      const res = await fetch('/api/integrations/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, teamId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.details || data.error || 'Test failed');
+      }
+      setMessage(`${type} test sent successfully!`);
+    } catch (err) {
+      setMessage(`Error: ${err.message}`);
+    } finally {
+      setTesting('');
+    }
+  }
+
   async function toggleIntegration(id, enabled) {
     const res = await fetch(`/api/integrations/${id}`, {
       method: 'PATCH',
@@ -72,6 +97,7 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
   }
 
   const psiIntegration = integrations.find((i) => i.type === 'pagespeed');
+  const anthropicIntegration = integrations.find((i) => i.type === 'anthropic');
   const slackIntegration = integrations.find((i) => i.type === 'slack');
   const emailIntegration = integrations.find((i) => i.type === 'email');
 
@@ -125,6 +151,44 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
         </div>
       </div>
 
+      {/* Anthropic AI */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+              <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Anthropic AI</h3>
+              <p className="text-xs text-gray-400">API key for AI-powered recommendations. Get one from console.anthropic.com.</p>
+            </div>
+          </div>
+          {anthropicIntegration && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">
+              Configured
+            </span>
+          )}
+        </div>
+        <div className="flex gap-3">
+          <input
+            type="password"
+            value={anthropicKey}
+            onChange={(e) => setAnthropicKey(e.target.value)}
+            placeholder="sk-ant-..."
+            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            onClick={() => saveIntegration('anthropic', { apiKey: anthropicKey })}
+            disabled={saving === 'anthropic' || !anthropicKey}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {saving === 'anthropic' ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+
       {/* Slack */}
       <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
         <div className="flex items-center justify-between mb-4">
@@ -165,6 +229,15 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
           >
             {saving === 'slack' ? 'Saving...' : 'Save'}
           </button>
+          {slackIntegration && (
+            <button
+              onClick={() => testIntegration('slack')}
+              disabled={testing === 'slack'}
+              className="px-3 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {testing === 'slack' ? 'Testing...' : 'Test'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -208,6 +281,15 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
           >
             {saving === 'email' ? 'Saving...' : 'Save'}
           </button>
+          {emailIntegration && (
+            <button
+              onClick={() => testIntegration('email')}
+              disabled={testing === 'email'}
+              className="px-3 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {testing === 'email' ? 'Testing...' : 'Test'}
+            </button>
+          )}
         </div>
       </div>
     </div>

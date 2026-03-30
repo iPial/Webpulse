@@ -4,7 +4,9 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(npm install:*)",
       "Bash(gh auth:*)",
-      "WebFetch(domain:webpulse-phi.vercel.app)"
+      "WebFetch(domain:webpulse-phi.vercel.app)",
+      "Bash(npm i:*)",
+      "Bash(vercel login:*)"
     ]
   }
 }
