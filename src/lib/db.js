@@ -35,6 +35,23 @@ export async function createTeam(cookieStore, { name, slug }) {
   return team;
 }
 
+// Get or auto-create a team for the current user
+// Transparent to the user — no "team" concept in the UI for Phase 1
+export async function ensureTeam(cookieStore) {
+  const teams = await getUserTeams(cookieStore);
+  if (teams.length > 0) return teams[0];
+
+  // Auto-create a default team
+  const supabase = createServerSupabase(cookieStore);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const name = user.email?.split('@')[0] || 'My Team';
+  const slug = `team-${user.id.slice(0, 8)}`;
+
+  return createTeam(cookieStore, { name, slug });
+}
+
 export async function getUserTeams(cookieStore) {
   const supabase = createServerSupabase(cookieStore);
   const { data, error } = await supabase

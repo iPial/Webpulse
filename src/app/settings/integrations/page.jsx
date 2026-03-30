@@ -1,22 +1,12 @@
 import { cookies } from 'next/headers';
 import Link from 'next/link';
-import { getUserTeams, getIntegrations } from '@/lib/db';
+import { ensureTeam, getIntegrations } from '@/lib/db';
 import IntegrationsManager from '@/components/IntegrationsManager';
 
 export default async function IntegrationsPage() {
   const cookieStore = await cookies();
-  const teams = await getUserTeams(cookieStore);
-
-  if (teams.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <p className="text-gray-400">Create a team first.</p>
-      </div>
-    );
-  }
-
-  const teamId = teams[0].id;
-  const integrations = await getIntegrations(cookieStore, teamId);
+  const team = await ensureTeam(cookieStore);
+  const integrations = await getIntegrations(cookieStore, team.id);
 
   return (
     <div>
@@ -35,7 +25,7 @@ export default async function IntegrationsPage() {
         </div>
       </div>
 
-      <IntegrationsManager teamId={teamId} initialIntegrations={integrations} />
+      <IntegrationsManager teamId={team.id} initialIntegrations={integrations} />
     </div>
   );
 }

@@ -1,18 +1,12 @@
 import { cookies } from 'next/headers';
 import Link from 'next/link';
-import { getUserTeams, getSites } from '@/lib/db';
+import { ensureTeam, getSites } from '@/lib/db';
 import SitesManager from '@/components/SitesManager';
 
 export default async function SettingsPage() {
   const cookieStore = await cookies();
-  const teams = await getUserTeams(cookieStore);
-
-  if (teams.length === 0) {
-    return <NoTeamState />;
-  }
-
-  const teamId = teams[0].id;
-  const sites = await getSites(cookieStore, teamId);
+  const team = await ensureTeam(cookieStore);
+  const sites = await getSites(cookieStore, team.id);
 
   return (
     <div>
@@ -29,16 +23,7 @@ export default async function SettingsPage() {
         </Link>
       </div>
 
-      <SitesManager teamId={teamId} initialSites={sites} />
-    </div>
-  );
-}
-
-function NoTeamState() {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-      <p className="text-gray-400 mb-4">You need a team to manage sites.</p>
-      <p className="text-sm text-gray-500">A team will be created automatically on first use.</p>
+      <SitesManager teamId={team.id} initialSites={sites} />
     </div>
   );
 }

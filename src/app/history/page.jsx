@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { getUserTeams, getSites, getSiteHistory } from '@/lib/db';
+import { ensureTeam, getSites, getSiteHistory } from '@/lib/db';
 import SiteSelector from '@/components/SiteSelector';
 import TrendChart from '@/components/TrendChart';
 import HistoryTable from '@/components/HistoryTable';
@@ -8,13 +8,8 @@ export default async function HistoryPage({ searchParams }) {
   const resolvedParams = await searchParams;
   const cookieStore = await cookies();
 
-  const teams = await getUserTeams(cookieStore);
-  if (teams.length === 0) {
-    return <EmptyState message="Create a team to view history." />;
-  }
-
-  const teamId = teams[0].id;
-  const sites = await getSites(cookieStore, teamId);
+  const team = await ensureTeam(cookieStore);
+  const sites = await getSites(cookieStore, team.id);
 
   if (sites.length === 0) {
     return <EmptyState message="Add sites in Settings to start tracking history." />;
