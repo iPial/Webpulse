@@ -1,0 +1,22 @@
+{
+  "crons": [
+    {
+      "path": "/api/scan/trigger",
+      "schedule": "0 6 * * *"
+    }
+  ],
+  "functions": {
+    "src/app/api/scan/worker/route.js": {
+      "maxDuration": 60
+    },
+    "src/app/api/ai/route.js": {
+      "maxDuration": 60
+    },
+    "src/app/api/export/sheets/route.js": {
+      "maxDuration": 30
+    },
+    "src/app/api/export/email/route.js": {
+      "maxDuration": 30
+    }
+  }
+}
