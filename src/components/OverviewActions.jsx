@@ -5,9 +5,11 @@ import { useState } from 'react';
 export default function OverviewActions({ teamId }) {
   const [slackStatus, setSlackStatus] = useState('idle');
   const [emailStatus, setEmailStatus] = useState('idle');
+  const [errorMsg, setErrorMsg] = useState('');
 
   async function handleSlack() {
     setSlackStatus('loading');
+    setErrorMsg('');
     try {
       const res = await fetch('/api/export/slack', {
         method: 'POST',
@@ -16,17 +18,19 @@ export default function OverviewActions({ teamId }) {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error);
+        throw new Error(data.details || data.error || 'Failed');
       }
       setSlackStatus('success');
-    } catch {
+      setTimeout(() => setSlackStatus('idle'), 5000);
+    } catch (err) {
       setSlackStatus('error');
+      setErrorMsg(err.message);
     }
-    setTimeout(() => setSlackStatus('idle'), 4000);
   }
 
   async function handleEmail() {
     setEmailStatus('loading');
+    setErrorMsg('');
     try {
       const res = await fetch('/api/export/email', {
         method: 'POST',
@@ -35,29 +39,46 @@ export default function OverviewActions({ teamId }) {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error);
+        throw new Error(data.details || data.error || 'Failed');
       }
       setEmailStatus('success');
-    } catch {
+      setTimeout(() => setEmailStatus('idle'), 5000);
+    } catch (err) {
       setEmailStatus('error');
+      setErrorMsg(err.message);
     }
-    setTimeout(() => setEmailStatus('idle'), 4000);
+  }
+
+  function dismissError() {
+    setErrorMsg('');
+    setSlackStatus('idle');
+    setEmailStatus('idle');
   }
 
   return (
-    <div className="flex gap-2">
-      <ActionButton
-        label="Send to Slack"
-        status={slackStatus}
-        onClick={handleSlack}
-        icon="#"
-      />
-      <ActionButton
-        label="Email Report"
-        status={emailStatus}
-        onClick={handleEmail}
-        icon="@"
-      />
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex gap-2">
+        <ActionButton
+          label="Send to Slack"
+          status={slackStatus}
+          onClick={handleSlack}
+          icon="#"
+        />
+        <ActionButton
+          label="Email Report"
+          status={emailStatus}
+          onClick={handleEmail}
+          icon="@"
+        />
+      </div>
+      {errorMsg && (
+        <div className="flex items-center gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400 max-w-md">
+          <span className="flex-1">{errorMsg}</span>
+          <button onClick={dismissError} className="text-red-500 hover:text-red-300 shrink-0">
+            &times;
+          </button>
+        </div>
+      )}
     </div>
   );
 }
