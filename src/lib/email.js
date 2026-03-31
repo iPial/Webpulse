@@ -1,28 +1,35 @@
-import { Resend } from 'resend';
+const SMTP2GO_API_URL = 'https://api.smtp2go.com/v3/email/send';
 
-let resendClient = null;
-
-function getClient() {
-  if (!resendClient) {
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) throw new Error('RESEND_API_KEY is not set');
-    resendClient = new Resend(apiKey);
-  }
-  return resendClient;
-}
-
-// Send a PageSpeed report email
+// Send a PageSpeed report email via SMTP2GO
 export async function sendReportEmail({ to, subject, html }) {
-  const resend = getClient();
+  const apiKey = process.env.SMTP2GO_API_KEY;
+  if (!apiKey) throw new Error('SMTP2GO_API_KEY is not set. Add it in Vercel env vars.');
 
-  const { data, error } = await resend.emails.send({
-    from: 'PageSpeed Monitor <noreply@resend.dev>',
-    to: Array.isArray(to) ? to : [to],
-    subject,
-    html,
+  const sender = process.env.SMTP2GO_SENDER || 'PageSpeed Monitor <noreply@webpulse.app>';
+  const recipients = Array.isArray(to) ? to : [to];
+
+  const response = await fetch(SMTP2GO_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Smtp2go-Api-Key': apiKey,
+      'accept': 'application/json',
+    },
+    body: JSON.stringify({
+      sender,
+      to: recipients,
+      subject,
+      html_body: html,
+    }),
   });
 
-  if (error) throw new Error(`Resend error: ${error.message}`);
+  const data = await response.json();
+
+  if (!response.ok || data.data?.error) {
+    const errMsg = data.data?.error || data.data?.failures?.join(', ') || `SMTP2GO error (${response.status})`;
+    throw new Error(errMsg);
+  }
+
   return data;
 }
 
