@@ -30,6 +30,19 @@ export async function sendReportEmail({ to, subject, html }) {
     throw new Error(errMsg);
   }
 
+  // Check for failed recipients
+  const failures = data.data?.failures || [];
+  if (failures.length > 0) {
+    throw new Error(`Email delivery failed for: ${failures.join(', ')}`);
+  }
+
+  // Log succeeded count for debugging
+  const succeeded = data.data?.succeeded || 0;
+  if (succeeded === 0 && recipients.length > 0) {
+    console.warn('SMTP2GO returned success but 0 emails succeeded. Check sender verification.');
+    throw new Error('Email sent but not delivered. Check that your SMTP2GO sender address is verified.');
+  }
+
   return data;
 }
 
