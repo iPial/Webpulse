@@ -259,7 +259,7 @@ export async function getLatestResults(cookieStore, teamId) {
   return Array.from(latest.values());
 }
 
-export async function getRecentActivity(cookieStore, teamId, { limit = 20 } = {}) {
+export async function getRecentActivity(cookieStore, teamId, { limit = 15 } = {}) {
   const supabase = createServerSupabase(cookieStore);
   const { data: sites } = await supabase.from('sites').select('id').eq('team_id', teamId);
   if (!sites?.length) return [];
@@ -267,7 +267,7 @@ export async function getRecentActivity(cookieStore, teamId, { limit = 20 } = {}
   const siteIds = sites.map((s) => s.id);
   const { data, error } = await supabase
     .from('scan_results')
-    .select('id, strategy, performance, scanned_at, site_id, sites(name, url)')
+    .select('id, strategy, performance, accessibility, best_practices, seo, fcp, lcp, scanned_at, site_id, sites(name, url)')
     .in('site_id', siteIds)
     .order('scanned_at', { ascending: false })
     .limit(limit);

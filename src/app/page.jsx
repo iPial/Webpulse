@@ -21,7 +21,7 @@ export default async function OverviewPage() {
     getRecentActivity(cookieStore, team.id),
   ]);
 
-  // Group results by site, tracking previous results for regression
+  // Group results by site with current + previous for regression
   const siteMap = new Map();
   for (const row of results) {
     if (!siteMap.has(row.site_id)) {
@@ -53,32 +53,39 @@ export default async function OverviewPage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between mb-8">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Overview</h1>
           <p className="text-sm text-gray-400 mt-1">
-            {sites.length} site{sites.length !== 1 ? 's' : ''} monitored
+            {stats.siteCount} site{stats.siteCount !== 1 ? 's' : ''} monitored
           </p>
         </div>
         <OverviewActions teamId={team.id} />
       </div>
 
+      {/* Stats */}
       <OverviewStats stats={stats} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-8">
-        {sites.map(({ site, mobile, desktop, prevMobile, prevDesktop }) => (
-          <SiteCard
-            key={site.id}
-            site={site}
-            mobile={mobile}
-            desktop={desktop}
-            prevMobile={prevMobile}
-            prevDesktop={prevDesktop}
-          />
-        ))}
+      {/* Sites Grid */}
+      <div className="mt-6">
+        <h2 className="text-xs text-gray-500 uppercase tracking-wider mb-3">Sites</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {sites.map(({ site, mobile, desktop, prevMobile, prevDesktop }) => (
+            <SiteCard
+              key={site.id}
+              site={site}
+              mobile={mobile}
+              desktop={desktop}
+              prevMobile={prevMobile}
+              prevDesktop={prevDesktop}
+            />
+          ))}
+        </div>
       </div>
 
-      <div className="mt-8">
+      {/* Activity */}
+      <div className="mt-6">
         <ActivityFeed activity={activity} />
       </div>
     </div>
@@ -93,8 +100,10 @@ function computeStats(sites) {
   let count = 0;
   let criticalTotal = 0;
   let improvementTotal = 0;
+  let worstPerformance = 100;
+  let worstSiteName = '';
 
-  for (const { mobile, desktop } of sites) {
+  for (const { site, mobile, desktop } of sites) {
     const result = mobile || desktop;
     if (!result) continue;
 
@@ -103,6 +112,11 @@ function computeStats(sites) {
     totalBP += result.best_practices;
     totalSEO += result.seo;
     count++;
+
+    if (result.performance < worstPerformance) {
+      worstPerformance = result.performance;
+      worstSiteName = site.name;
+    }
 
     const audits = result.audits || {};
     criticalTotal += audits.critical?.length || 0;
@@ -117,6 +131,8 @@ function computeStats(sites) {
     siteCount: count,
     criticalTotal,
     improvementTotal,
+    worstPerformance: count > 0 ? worstPerformance : null,
+    worstSiteName,
   };
 }
 
@@ -130,10 +146,7 @@ function EmptyState({ message, showSetup }) {
       </div>
       <p className="text-gray-400 mb-4">{message}</p>
       {showSetup && (
-        <a
-          href="/settings"
-          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
+        <a href="/settings" className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
           Go to Settings
         </a>
       )}
