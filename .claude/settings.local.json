@@ -6,7 +6,8 @@
       "Bash(gh auth:*)",
       "WebFetch(domain:webpulse-phi.vercel.app)",
       "Bash(npm i:*)",
-      "Bash(vercel login:*)"
+      "Bash(vercel login:*)",
+      "WebSearch"
     ]
   }
 }

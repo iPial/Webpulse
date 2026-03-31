@@ -16,12 +16,20 @@ export default async function SettingsPage() {
           <h1 className="text-2xl font-bold text-white">Settings</h1>
           <p className="text-sm text-gray-400 mt-1">Manage your monitored sites</p>
         </div>
-        <Link
-          href="/settings/integrations"
-          className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
-        >
-          Integrations
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/settings/team"
+            className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            Team
+          </Link>
+          <Link
+            href="/settings/integrations"
+            className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            Integrations
+          </Link>
+        </div>
       </div>
 
       <ScheduleBanner />
