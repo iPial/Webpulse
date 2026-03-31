@@ -1,15 +1,21 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getUserTeams, getLatestResults, getTeamIntegrations } from '@/lib/db';
+import { createServerSupabase } from '@/lib/supabase';
 import { sendReportEmail, buildReportHTML } from '@/lib/email';
 
 // POST /api/export/email
 // Body: { teamId?, to? }
-// Sends a scan report email. Uses integration config or provided recipients.
+// Sends to: configured integration emails + the requesting user's email
 export async function POST(request) {
   try {
     const cookieStore = await cookies();
     const body = await request.json();
+
+    // Get the current user's email
+    const supabase = createServerSupabase(cookieStore);
+    const { data: { user } } = await supabase.auth.getUser();
+    const userEmail = user?.email;
 
     // Determine team
     let teamId = body.teamId;
@@ -21,30 +27,37 @@ export async function POST(request) {
       teamId = teams[0].id;
     }
 
-    // Determine recipients
-    let recipients = [];
+    // Build recipients: configured list + current user
+    const recipientSet = new Set();
 
     if (body.to) {
-      // Explicit recipients from request
-      recipients = Array.isArray(body.to) ? body.to : body.to.split(',').map((e) => e.trim());
+      const explicit = Array.isArray(body.to) ? body.to : body.to.split(',').map((e) => e.trim());
+      explicit.forEach((e) => recipientSet.add(e));
     } else {
-      // Check email integration config
+      // From email integration config
       const integrations = await getTeamIntegrations(teamId);
       const emailIntegration = integrations.find((i) => i.type === 'email' && i.enabled);
 
       if (emailIntegration?.config?.emails) {
-        recipients = emailIntegration.config.emails.split(',').map((e) => e.trim());
+        emailIntegration.config.emails.split(',').map((e) => e.trim()).forEach((e) => recipientSet.add(e));
       }
 
       // Fallback to env var
-      if (recipients.length === 0 && process.env.EMAIL_TO) {
-        recipients = process.env.EMAIL_TO.split(',').map((e) => e.trim());
+      if (recipientSet.size === 0 && process.env.EMAIL_TO) {
+        process.env.EMAIL_TO.split(',').map((e) => e.trim()).forEach((e) => recipientSet.add(e));
       }
     }
 
+    // Always include the requesting user's email
+    if (userEmail) {
+      recipientSet.add(userEmail);
+    }
+
+    const recipients = Array.from(recipientSet);
+
     if (recipients.length === 0) {
       return NextResponse.json(
-        { error: 'No recipients configured. Set up email integration or provide "to" in request.' },
+        { error: 'No recipients found. Set up email integration or sign in with an email account.' },
         { status: 400 }
       );
     }
