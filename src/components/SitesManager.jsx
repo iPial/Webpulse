@@ -48,34 +48,50 @@ export default function SitesManager({ teamId, initialSites }) {
     }
   }
 
+  async function scanStrategy(siteId, strategy) {
+    const res = await fetch('/api/scan/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteId, strategy }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.details || data.error || 'Scan failed');
+    return data;
+  }
+
   async function handleScan(siteId, siteName) {
     setScanning(siteId);
-    setScanMessages((prev) => ({ ...prev, [siteId]: { type: 'info', text: 'Scanning...' } }));
+    let mobileScore = null;
+    let desktopScore = null;
 
     try {
-      const res = await fetch('/api/scan/manual', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ siteId }),
-      });
+      // Step 1: Mobile scan
+      setScanMessages((prev) => ({ ...prev, [siteId]: { type: 'info', text: 'Scanning mobile...' } }));
+      const mobileResult = await scanStrategy(siteId, 'mobile');
+      mobileScore = mobileResult.scores.performance;
 
-      const data = await res.json();
+      // Step 2: Desktop scan
+      setScanMessages((prev) => ({
+        ...prev,
+        [siteId]: { type: 'info', text: `Mobile: ${mobileScore} — Scanning desktop...` },
+      }));
+      const desktopResult = await scanStrategy(siteId, 'desktop');
+      desktopScore = desktopResult.scores.performance;
 
-      if (!res.ok) {
-        throw new Error(data.details || data.error || 'Scan failed');
-      }
-
+      // Done
       setScanMessages((prev) => ({
         ...prev,
         [siteId]: {
           type: 'success',
-          text: `Perf: ${data.mobile.performance} (mobile) / ${data.desktop.performance} (desktop)`,
+          text: `Perf: ${mobileScore} (mobile) / ${desktopScore} (desktop)`,
         },
       }));
     } catch (err) {
+      // Show partial results if we got mobile before desktop failed
+      const partial = mobileScore !== null ? ` (mobile: ${mobileScore})` : '';
       setScanMessages((prev) => ({
         ...prev,
-        [siteId]: { type: 'error', text: err.message },
+        [siteId]: { type: 'error', text: `${err.message}${partial}` },
       }));
     } finally {
       setScanning(null);

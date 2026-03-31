@@ -2,19 +2,23 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSiteById, getUserRole, saveScanResult, upsertMonthlySnapshot } from '@/lib/db';
 import { createServiceSupabase } from '@/lib/supabase';
-import { runFullAudit, formatAuditSummary } from '@/lib/pagespeed';
+import { runPageSpeedAudit, formatAuditSummary } from '@/lib/pagespeed';
 
 // POST /api/scan/manual
-// Body: { siteId }
-// Runs a scan inline (no queue) — for manual "Scan Now" from the UI
+// Body: { siteId, strategy: 'mobile' | 'desktop' }
+// Scans ONE strategy at a time — client calls twice for full scan
 export async function POST(request) {
   try {
     const cookieStore = await cookies();
     const body = await request.json();
-    const { siteId } = body;
+    const { siteId, strategy = 'mobile' } = body;
 
     if (!siteId) {
       return NextResponse.json({ error: 'siteId is required' }, { status: 400 });
+    }
+
+    if (!['mobile', 'desktop'].includes(strategy)) {
+      return NextResponse.json({ error: 'strategy must be mobile or desktop' }, { status: 400 });
     }
 
     const site = await getSiteById(cookieStore, parseInt(siteId, 10));
@@ -47,51 +51,44 @@ export async function POST(request) {
       );
     }
 
-    // Run scan
-    const { mobile, desktop } = await runFullAudit(site.url, { apiKey });
+    // Run single strategy scan
+    const result = await runPageSpeedAudit(site.url, strategy, { apiKey });
 
-    // Save results
-    await Promise.all([
-      saveScanResult({
-        siteId: site.id,
-        strategy: 'mobile',
-        scores: mobile.scores,
-        vitals: mobile.vitals,
-        audits: mobile.audits,
-      }),
-      saveScanResult({
-        siteId: site.id,
-        strategy: 'desktop',
-        scores: desktop.scores,
-        vitals: desktop.vitals,
-        audits: desktop.audits,
-      }),
-    ]);
-
-    // Upsert monthly snapshot
-    const now = new Date();
-    const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    const summary = formatAuditSummary(mobile.audits);
-
-    await upsertMonthlySnapshot({
+    // Save result
+    await saveScanResult({
       siteId: site.id,
-      month,
-      scores: mobile.scores,
-      counts: {
-        critical: summary.criticalCount,
-        improvement: summary.improvementCount,
-        optional: summary.optionalCount,
-      },
-      avgVitals: {
-        fcpMs: mobile.vitals.fcpMs != null ? Math.round(mobile.vitals.fcpMs) : null,
-        lcpMs: mobile.vitals.lcpMs != null ? Math.round(mobile.vitals.lcpMs) : null,
-      },
+      strategy,
+      scores: result.scores,
+      vitals: result.vitals,
+      audits: result.audits,
     });
+
+    // Upsert monthly snapshot (only for mobile — primary metric)
+    if (strategy === 'mobile') {
+      const now = new Date();
+      const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+      const summary = formatAuditSummary(result.audits);
+
+      await upsertMonthlySnapshot({
+        siteId: site.id,
+        month,
+        scores: result.scores,
+        counts: {
+          critical: summary.criticalCount,
+          improvement: summary.improvementCount,
+          optional: summary.optionalCount,
+        },
+        avgVitals: {
+          fcpMs: result.vitals.fcpMs != null ? Math.round(result.vitals.fcpMs) : null,
+          lcpMs: result.vitals.lcpMs != null ? Math.round(result.vitals.lcpMs) : null,
+        },
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      mobile: mobile.scores,
-      desktop: desktop.scores,
+      strategy,
+      scores: result.scores,
     });
   } catch (error) {
     console.error('Manual scan error:', error);

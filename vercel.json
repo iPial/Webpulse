@@ -9,6 +9,9 @@
     "src/app/api/scan/worker/route.js": {
       "maxDuration": 60
     },
+    "src/app/api/scan/manual/route.js": {
+      "maxDuration": 60
+    },
     "src/app/api/ai/route.js": {
       "maxDuration": 60
     },
