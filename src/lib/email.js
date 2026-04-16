@@ -5,7 +5,7 @@ export async function sendReportEmail({ to, subject, html }) {
   const apiKey = process.env.SMTP2GO_API_KEY;
   if (!apiKey) throw new Error('SMTP2GO_API_KEY is not set. Add it in Vercel env vars.');
 
-  const sender = process.env.SMTP2GO_SENDER || 'PageSpeed Monitor <noreply@webpulse.app>';
+  const sender = process.env.SMTP2GO_SENDER || 'Webpulse <noreply@webpulse.app>';
   const recipients = Array.isArray(to) ? to : [to];
 
   const response = await fetch(SMTP2GO_API_URL, {
@@ -96,7 +96,7 @@ export function buildReportHTML(sites) {
     <body style="margin: 0; padding: 0; background-color: #111827; color: #E5E7EB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
       <div style="max-width: 700px; margin: 0 auto; padding: 32px 16px;">
         <div style="margin-bottom: 24px;">
-          <h1 style="color: #F9FAFB; font-size: 20px; margin: 0 0 4px 0;">PageSpeed Daily Report</h1>
+          <h1 style="color: #F9FAFB; font-size: 20px; margin: 0 0 4px 0;">Webpulse Daily Report</h1>
           <p style="color: #9CA3AF; font-size: 14px; margin: 0;">
             ${sites.length} site${sites.length !== 1 ? 's' : ''} scanned &middot;
             ${totalCritical > 0 ? `<span style="color: #EF4444;">${totalCritical} critical issue${totalCritical !== 1 ? 's' : ''}</span>` : '<span style="color: #10B981;">No critical issues</span>'}
@@ -121,7 +121,7 @@ export function buildReportHTML(sites) {
 
         <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #374151;">
           <p style="color: #6B7280; font-size: 12px; margin: 0;">
-            Sent by PageSpeed Monitor &middot; ${new Date().toISOString().slice(0, 10)}
+            Sent by Webpulse &middot; ${new Date().toISOString().slice(0, 10)}
           </p>
         </div>
       </div>

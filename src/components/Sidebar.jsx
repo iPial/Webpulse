@@ -1,7 +1,8 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 const navItems = [
   { href: '/', label: 'Overview', icon: GridIcon },
@@ -20,9 +21,9 @@ export default function Sidebar() {
       <div className="p-6">
         <Link href="/" className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <span className="text-white font-bold text-sm">PS</span>
+            <span className="text-white font-bold text-sm">W</span>
           </div>
-          <span className="text-lg font-semibold text-white">PageSpeed</span>
+          <span className="text-lg font-semibold text-white">Webpulse</span>
         </Link>
       </div>
 
@@ -46,10 +47,93 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-gray-800">
-        <p className="text-xs text-gray-500">PageSpeed Monitor v0.1</p>
-      </div>
+      <UserProfile />
     </aside>
+  );
+}
+
+function UserProfile() {
+  const [user, setUser] = useState(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    fetch('/api/me')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setUser(data))
+      .catch(() => {});
+  }, []);
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      const { createBrowserSupabase } = await import('@/lib/supabase');
+      const supabase = createBrowserSupabase();
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+      router.push('/login');
+    } catch {
+      router.push('/login');
+    }
+  }
+
+  const roleColors = {
+    owner: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    admin: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    viewer: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+  };
+
+  return (
+    <div className="p-4 border-t border-gray-800">
+      {user ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            {/* Avatar */}
+            <div className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
+              <span className="text-xs font-bold text-gray-300 uppercase">
+                {user.email?.charAt(0) || '?'}
+              </span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-white truncate" title={user.email}>
+                {user.email}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border capitalize ${roleColors[user.role] || roleColors.viewer}`}>
+                  {user.role}
+                </span>
+                {user.teamName && (
+                  <span className="text-[10px] text-gray-500 truncate" title={user.teamName}>
+                    {user.teamName}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleSignOut}
+            disabled={signingOut}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-800 transition-colors disabled:opacity-50"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+            {signingOut ? 'Signing out...' : 'Sign Out'}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-gray-800 animate-pulse" />
+            <div className="flex-1 space-y-1.5">
+              <div className="h-3 bg-gray-800 rounded animate-pulse w-3/4" />
+              <div className="h-2 bg-gray-800 rounded animate-pulse w-1/2" />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -43,7 +43,7 @@ export async function POST(request) {
         return NextResponse.json({ error: 'No webhook URL configured' }, { status: 400 });
       }
       await sendSlackMessage(webhookUrl, {
-        text: 'PageSpeed Monitor — Test message. Your Slack integration is working!',
+        text: 'Webpulse — Test message. Your Slack integration is working!',
       });
     } else if (type === 'email') {
       const emails = integration.config?.emails;
@@ -53,8 +53,8 @@ export async function POST(request) {
       const recipients = emails.split(',').map((e) => e.trim());
       await sendReportEmail({
         to: recipients,
-        subject: 'PageSpeed Monitor — Test Email',
-        html: '<div style="font-family: sans-serif; padding: 20px; background: #111827; color: #E5E7EB;"><h2 style="color: #F9FAFB;">Test Successful</h2><p>Your email integration is working correctly.</p><p style="color: #6B7280; font-size: 12px;">Sent by PageSpeed Monitor</p></div>',
+        subject: 'Webpulse — Test Email',
+        html: '<div style="font-family: sans-serif; padding: 20px; background: #111827; color: #E5E7EB;"><h2 style="color: #F9FAFB;">Test Successful</h2><p>Your email integration is working correctly.</p><p style="color: #6B7280; font-size: 12px;">Sent by Webpulse</p></div>',
       });
     } else {
       return NextResponse.json({ error: `Unknown integration type: ${type}` }, { status: 400 });

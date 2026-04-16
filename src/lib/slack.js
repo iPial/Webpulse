@@ -35,7 +35,7 @@ export function buildDailySummary(siteResults, regressions) {
   const blocks = [
     {
       type: 'header',
-      text: { type: 'plain_text', text: 'PageSpeed Daily Report' },
+      text: { type: 'plain_text', text: 'Webpulse Daily Report' },
     },
   ];
 
@@ -117,7 +117,7 @@ export function buildDailySummary(siteResults, regressions) {
 
 // Build a simple text-only summary (for webhooks that don't support blocks)
 export function buildDailySummaryText(siteResults, regressions) {
-  const lines = ['*PageSpeed Daily Report*\n'];
+  const lines = ['*Webpulse Daily Report*\n'];
 
   for (const [, { site, results }] of siteResults) {
     const mobile = results.mobile;

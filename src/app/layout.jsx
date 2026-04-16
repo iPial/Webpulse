@@ -2,7 +2,7 @@ import './globals.css';
 import AppShell from '@/components/AppShell';
 
 export const metadata = {
-  title: 'PageSpeed Monitor',
+  title: 'Webpulse',
   description: 'Automated daily PageSpeed audits with categorized reports',
 };
 

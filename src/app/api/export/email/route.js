@@ -85,7 +85,7 @@ export async function POST(request) {
 
     const data = await sendReportEmail({
       to: recipients,
-      subject: `PageSpeed Report — ${date}`,
+      subject: `Webpulse Report — ${date}`,
       html,
     });
 

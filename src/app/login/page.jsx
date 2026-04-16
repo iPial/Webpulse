@@ -48,7 +48,7 @@ function LoginForm() {
     return (
       <main className="flex min-h-screen items-center justify-center px-4">
         <div className="text-center">
-          <h1 className="text-3xl font-bold mb-4">PageSpeed Monitor</h1>
+          <h1 className="text-3xl font-bold mb-4">Webpulse</h1>
           <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-4 text-sm text-yellow-400 max-w-md">
             <p className="font-medium mb-2">Supabase not configured</p>
             <p className="text-yellow-500">Set <code className="bg-yellow-500/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> and <code className="bg-yellow-500/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in your <code className="bg-yellow-500/10 px-1 rounded">.env.local</code> file.</p>
@@ -136,7 +136,7 @@ function LoginForm() {
     <main className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center">
-          <h1 className="text-3xl font-bold">PageSpeed Monitor</h1>
+          <h1 className="text-3xl font-bold">Webpulse</h1>
           <p className="mt-2 text-gray-400">
             {mode === 'signup' ? 'Create your account' : 'Sign in to your account'}
           </p>
