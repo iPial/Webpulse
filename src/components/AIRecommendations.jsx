@@ -74,7 +74,7 @@ export default function AIRecommendations({ siteId }) {
 
       {!recommendations && !loading && !error && (
         <p className="text-sm text-gray-500">
-          Click Analyze to get AI-powered recommendations based on your latest scan results.
+          Click Analyze to get AI-powered recommendations based on your latest scan results. Add your AI API key in Settings &gt; Integrations.
         </p>
       )}
     </div>

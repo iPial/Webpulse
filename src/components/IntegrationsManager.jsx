@@ -7,8 +7,12 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
   const [psiApiKey, setPsiApiKey] = useState(
     integrations.find((i) => i.type === 'pagespeed')?.config?.apiKey || ''
   );
-  const [anthropicKey, setAnthropicKey] = useState(
-    integrations.find((i) => i.type === 'anthropic')?.config?.apiKey || ''
+  const aiIntegrationInit = integrations.find((i) => i.type === 'ai_provider') || integrations.find((i) => i.type === 'anthropic');
+  const [aiProvider, setAiProvider] = useState(
+    aiIntegrationInit?.config?.provider || 'anthropic'
+  );
+  const [aiApiKey, setAiApiKey] = useState(
+    aiIntegrationInit?.config?.apiKey || ''
   );
   const [slackUrl, setSlackUrl] = useState(
     integrations.find((i) => i.type === 'slack')?.config?.webhookUrl || ''
@@ -97,9 +101,16 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
   }
 
   const psiIntegration = integrations.find((i) => i.type === 'pagespeed');
-  const anthropicIntegration = integrations.find((i) => i.type === 'anthropic');
+  const aiIntegration = integrations.find((i) => i.type === 'ai_provider') || integrations.find((i) => i.type === 'anthropic');
   const slackIntegration = integrations.find((i) => i.type === 'slack');
   const emailIntegration = integrations.find((i) => i.type === 'email');
+
+  const aiProviderOptions = [
+    { value: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...' },
+    { value: 'openai', label: 'OpenAI (GPT)', placeholder: 'sk-...' },
+    { value: 'gemini', label: 'Google (Gemini)', placeholder: 'AIza...' },
+  ];
+  const currentProviderOption = aiProviderOptions.find((o) => o.value === aiProvider) || aiProviderOptions[0];
 
   return (
     <div className="space-y-6">
@@ -151,7 +162,7 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
         </div>
       </div>
 
-      {/* Anthropic AI */}
+      {/* AI Provider */}
       <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -161,31 +172,42 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
               </svg>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white">Anthropic AI</h3>
-              <p className="text-xs text-gray-400">API key for AI-powered recommendations. Get one from console.anthropic.com.</p>
+              <h3 className="text-sm font-semibold text-white">AI Provider</h3>
+              <p className="text-xs text-gray-400">API key for AI-powered recommendations. Choose your preferred provider.</p>
             </div>
           </div>
-          {anthropicIntegration && (
+          {aiIntegration && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">
               Configured
             </span>
           )}
         </div>
-        <div className="flex gap-3">
-          <input
-            type="password"
-            value={anthropicKey}
-            onChange={(e) => setAnthropicKey(e.target.value)}
-            placeholder="sk-ant-..."
-            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          <button
-            onClick={() => saveIntegration('anthropic', { apiKey: anthropicKey })}
-            disabled={saving === 'anthropic' || !anthropicKey}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        <div className="space-y-3">
+          <select
+            value={aiProvider}
+            onChange={(e) => setAiProvider(e.target.value)}
+            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
-            {saving === 'anthropic' ? 'Saving...' : 'Save'}
-          </button>
+            {aiProviderOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <div className="flex gap-3">
+            <input
+              type="password"
+              value={aiApiKey}
+              onChange={(e) => setAiApiKey(e.target.value)}
+              placeholder={currentProviderOption.placeholder}
+              className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => saveIntegration('ai_provider', { provider: aiProvider, apiKey: aiApiKey })}
+              disabled={saving === 'ai_provider' || !aiApiKey}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {saving === 'ai_provider' ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
 

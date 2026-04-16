@@ -128,7 +128,7 @@ function AuditRow({ audit, colorClass }) {
           {/* Expanded description */}
           {expanded && audit.description && (
             <div className="mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800/50 pt-2">
-              {cleanDescription(audit.description)}
+              {renderDescription(audit.description)}
             </div>
           )}
         </div>
@@ -145,11 +145,47 @@ function AuditRow({ audit, colorClass }) {
   );
 }
 
-// Clean Lighthouse audit descriptions (remove markdown links, trim)
-function cleanDescription(desc) {
-  if (!desc) return '';
-  return desc
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [text](url) → text
-    .replace(/`([^`]+)`/g, '$1') // remove backticks
-    .trim();
+// Render Lighthouse audit descriptions with clickable links
+function renderDescription(desc) {
+  if (!desc) return null;
+  const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = linkPattern.exec(desc)) !== null) {
+    // Add text before the link
+    if (match.index > lastIndex) {
+      parts.push(
+        <span key={`t-${lastIndex}`}>
+          {desc.slice(lastIndex, match.index).replace(/`([^`]+)`/g, '$1')}
+        </span>
+      );
+    }
+    // Add the link
+    parts.push(
+      <a
+        key={`a-${match.index}`}
+        href={match[2]}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {match[1]}
+      </a>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text after the last link
+  if (lastIndex < desc.length) {
+    parts.push(
+      <span key={`t-${lastIndex}`}>
+        {desc.slice(lastIndex).replace(/`([^`]+)`/g, '$1')}
+      </span>
+    );
+  }
+
+  return parts.length > 0 ? parts : desc.replace(/`([^`]+)`/g, '$1').trim();
 }

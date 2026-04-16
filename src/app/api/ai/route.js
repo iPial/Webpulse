@@ -21,20 +21,35 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Site not found' }, { status: 404 });
     }
 
-    // Get team's Anthropic API key, fall back to env var
+    // Get team's AI provider config, fall back to legacy anthropic type, then env var
     const supabase = createServiceSupabase();
-    const { data: aiConfig } = await supabase
+    let { data: aiConfig } = await supabase
       .from('integrations')
       .select('config')
       .eq('team_id', site.team_id)
-      .eq('type', 'anthropic')
+      .eq('type', 'ai_provider')
       .eq('enabled', true)
       .maybeSingle();
 
+    // Backwards compat: fall back to legacy 'anthropic' type
+    if (!aiConfig) {
+      const { data: legacyConfig } = await supabase
+        .from('integrations')
+        .select('config')
+        .eq('team_id', site.team_id)
+        .eq('type', 'anthropic')
+        .eq('enabled', true)
+        .maybeSingle();
+      if (legacyConfig) {
+        aiConfig = { config: { provider: 'anthropic', apiKey: legacyConfig.config.apiKey } };
+      }
+    }
+
+    const provider = aiConfig?.config?.provider || 'anthropic';
     const apiKey = aiConfig?.config?.apiKey || process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'AI not configured. Add your Anthropic API key in Settings > Integrations.' },
+        { error: 'AI not configured. Add your AI API key in Settings > Integrations.' },
         { status: 503 }
       );
     }
@@ -50,31 +65,14 @@ export async function POST(request) {
 
     const prompt = buildPrompt(site, mobile, desktop);
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-
-    if (!response.ok) {
-      const errBody = await response.text();
-      console.error('Anthropic API error:', errBody);
-      return NextResponse.json(
-        { error: 'AI analysis failed' },
-        { status: 502 }
-      );
+    let text;
+    if (provider === 'openai') {
+      text = await callOpenAI(apiKey, prompt);
+    } else if (provider === 'gemini') {
+      text = await callGemini(apiKey, prompt);
+    } else {
+      text = await callAnthropic(apiKey, prompt);
     }
-
-    const data = await response.json();
-    const text = data.content?.[0]?.text || 'No recommendations generated.';
 
     return NextResponse.json({ recommendations: text });
   } catch (error) {
@@ -84,6 +82,77 @@ export async function POST(request) {
       { status: 500 }
     );
   }
+}
+
+async function callAnthropic(apiKey, prompt) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text();
+    console.error('Anthropic API error:', errBody);
+    throw new Error('AI analysis failed');
+  }
+
+  const data = await response.json();
+  return data.content?.[0]?.text || 'No recommendations generated.';
+}
+
+async function callOpenAI(apiKey, prompt) {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text();
+    console.error('OpenAI API error:', errBody);
+    throw new Error('AI analysis failed');
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || 'No recommendations generated.';
+}
+
+async function callGemini(apiKey, prompt) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errBody = await response.text();
+    console.error('Gemini API error:', errBody);
+    throw new Error('AI analysis failed');
+  }
+
+  const data = await response.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No recommendations generated.';
 }
 
 function buildPrompt(site, mobile, desktop) {

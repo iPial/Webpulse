@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ensureTeam, getSites } from '@/lib/db';
 import SitesManager from '@/components/SitesManager';
 import ScheduleBanner from '@/components/ScheduleBanner';
+import PasswordUpdate from '@/components/PasswordUpdate';
 
 export default async function SettingsPage() {
   const cookieStore = await cookies();
@@ -34,6 +35,11 @@ export default async function SettingsPage() {
 
       <ScheduleBanner />
       <SitesManager teamId={team.id} initialSites={sites} />
+
+      <div className="mt-10">
+        <h2 className="text-lg font-semibold text-white mb-4">Account</h2>
+        <PasswordUpdate />
+      </div>
     </div>
   );
 }
