@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ensureTeam, getSites } from '@/lib/db';
 import SitesManager from '@/components/SitesManager';
 import ScheduleBanner from '@/components/ScheduleBanner';
+import ScheduleManager from '@/components/ScheduleManager';
 import PasswordUpdate from '@/components/PasswordUpdate';
 
 export default async function SettingsPage() {
@@ -33,7 +34,8 @@ export default async function SettingsPage() {
         </div>
       </div>
 
-      <ScheduleBanner />
+      <ScheduleBanner teamId={team.id} />
+      <ScheduleManager teamId={team.id} />
       <SitesManager teamId={team.id} initialSites={sites} />
 
       <div className="mt-10">

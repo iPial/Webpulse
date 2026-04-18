@@ -43,16 +43,23 @@ export async function enqueueBatchScans(siteIds, baseUrl) {
 // Delay scales with site count: each site takes ~15-30s to scan.
 // QStash processes in parallel, but we add buffer for API latency + DB writes.
 // If notify runs before all scans finish, it will still report whatever has landed.
-export async function enqueueNotify(teamSiteMap, baseUrl) {
+export async function enqueueNotify(teamSiteMap, baseUrl, scheduleOptions = {}) {
   const client = getClient();
 
   const totalSites = Object.values(teamSiteMap).flat().length;
   // Min 60s, +5s per site beyond 10, max 300s (5 min)
   const delaySec = Math.min(300, Math.max(60, 60 + (totalSites - 10) * 5));
 
+  const body = { teamSiteMap };
+
+  // Pass schedule notification preferences if provided
+  if (scheduleOptions.notifySlack !== undefined) body.notifySlack = scheduleOptions.notifySlack;
+  if (scheduleOptions.notifyEmail !== undefined) body.notifyEmail = scheduleOptions.notifyEmail;
+  if (scheduleOptions.scheduleId) body.scheduleId = scheduleOptions.scheduleId;
+
   const result = await client.publishJSON({
     url: `${baseUrl}/api/scan/notify`,
-    body: { teamSiteMap },
+    body,
     retries: 2,
     delay: delaySec,
   });

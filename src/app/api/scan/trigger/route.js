@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getEnabledSites } from '@/lib/db';
 import { enqueueBatchScans, enqueueNotify } from '@/lib/queue';
+import { createServiceSupabase } from '@/lib/supabase';
 
 // POST /api/scan/trigger
 // Called by Vercel Cron (daily 6AM UTC) or manually
 // Fans out scan jobs to QStash — one per site
+// Also checks for pending user-created schedules
 export async function POST(request) {
   // Verify cron secret
   const authHeader = request.headers.get('authorization');
@@ -29,32 +31,37 @@ export async function POST(request) {
       allSites.push(...sites);
     }
 
-    if (allSites.length === 0) {
-      return NextResponse.json({ message: 'No sites to scan', count: 0 });
-    }
-
     // Get the base URL for worker callbacks
     const baseUrl = getBaseUrl(request);
 
-    // Enqueue all scan jobs via QStash batch
-    const siteIds = allSites.map((s) => s.id);
-    await enqueueBatchScans(siteIds, baseUrl);
+    let cronScanCount = 0;
 
-    // Build team → siteIds map for the notify job
-    const teamSiteMap = {};
-    for (const site of allSites) {
-      if (!teamSiteMap[site.team_id]) {
-        teamSiteMap[site.team_id] = [];
+    if (allSites.length > 0) {
+      // Enqueue all scan jobs via QStash batch
+      const siteIds = allSites.map((s) => s.id);
+      await enqueueBatchScans(siteIds, baseUrl);
+
+      // Build team → siteIds map for the notify job
+      const teamSiteMap = {};
+      for (const site of allSites) {
+        if (!teamSiteMap[site.team_id]) {
+          teamSiteMap[site.team_id] = [];
+        }
+        teamSiteMap[site.team_id].push(site.id);
       }
-      teamSiteMap[site.team_id].push(site.id);
+
+      // Enqueue the notify job (runs after scans complete)
+      await enqueueNotify(teamSiteMap, baseUrl);
+      cronScanCount = allSites.length;
     }
 
-    // Enqueue the notify job (runs after scans complete)
-    await enqueueNotify(teamSiteMap, baseUrl);
+    // Also process any pending user-created schedules that are due
+    const scheduledCount = await processPendingSchedules(baseUrl);
 
     return NextResponse.json({
       message: 'Scan jobs enqueued',
-      count: allSites.length,
+      count: cronScanCount,
+      scheduledScansTriggered: scheduledCount,
       frequencies,
     });
   } catch (error) {
@@ -64,6 +71,77 @@ export async function POST(request) {
       { status: 500 }
     );
   }
+}
+
+// Check for pending schedules where scheduledAt <= now and trigger them
+async function processPendingSchedules(baseUrl) {
+  const supabase = createServiceSupabase();
+
+  const { data: schedules, error } = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('type', 'schedule')
+    .eq('enabled', true);
+
+  if (error) {
+    console.error('Failed to fetch pending schedules:', error);
+    return 0;
+  }
+
+  const now = new Date();
+  const pending = (schedules || []).filter((s) => {
+    const config = s.config || {};
+    return config.status === 'pending' && config.scheduledAt && new Date(config.scheduledAt) <= now;
+  });
+
+  if (pending.length === 0) return 0;
+
+  let triggered = 0;
+
+  for (const schedule of pending) {
+    try {
+      // Mark as running
+      await supabase
+        .from('integrations')
+        .update({ config: { ...schedule.config, status: 'running' } })
+        .eq('id', schedule.id);
+
+      // Get enabled sites for this team
+      const { data: sites } = await supabase
+        .from('sites')
+        .select('id, url, name, team_id')
+        .eq('team_id', schedule.team_id)
+        .eq('enabled', true);
+
+      if (!sites || sites.length === 0) {
+        await supabase
+          .from('integrations')
+          .update({ config: { ...schedule.config, status: 'completed', completedAt: now.toISOString() } })
+          .eq('id', schedule.id);
+        continue;
+      }
+
+      const siteIds = sites.map((s) => s.id);
+      await enqueueBatchScans(siteIds, baseUrl);
+
+      const teamSiteMap = { [schedule.team_id]: siteIds };
+      await enqueueNotify(teamSiteMap, baseUrl, {
+        notifySlack: schedule.config.notifySlack,
+        notifyEmail: schedule.config.notifyEmail,
+        scheduleId: schedule.id,
+      });
+
+      triggered++;
+    } catch (err) {
+      console.error(`Failed to process schedule ${schedule.id}:`, err);
+      await supabase
+        .from('integrations')
+        .update({ config: { ...schedule.config, status: 'failed', error: err.message } })
+        .eq('id', schedule.id);
+    }
+  }
+
+  return triggered;
 }
 
 // Determine which scan frequencies should run today

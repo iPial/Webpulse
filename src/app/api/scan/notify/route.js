@@ -4,10 +4,12 @@ import { getTeamIntegrations } from '@/lib/db';
 import { createServiceSupabase } from '@/lib/supabase';
 import { detectRegression } from '@/lib/pagespeed';
 import { sendSlackMessage, buildDailySummary, buildDailySummaryText } from '@/lib/slack';
+import { sendReportEmail, buildReportHTML } from '@/lib/email';
 
 // POST /api/scan/notify
 // Called by QStash after scan jobs complete
 // Sends Slack summary and checks for regression alerts
+// Supports optional notifySlack/notifyEmail flags from scheduled scans
 export async function POST(request) {
   let body;
 
@@ -18,7 +20,7 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { teamSiteMap } = body;
+  const { teamSiteMap, notifySlack: scheduleNotifySlack, notifyEmail: scheduleNotifyEmail, scheduleId } = body;
   if (!teamSiteMap) {
     return NextResponse.json({ error: 'Missing teamSiteMap' }, { status: 400 });
   }
@@ -105,20 +107,87 @@ export async function POST(request) {
       // Get team integrations and send notifications
       const integrations = await getTeamIntegrations(teamId);
 
-      for (const integration of integrations) {
-        if (integration.type === 'slack' && integration.config?.webhookUrl) {
-          try {
-            // Use Block Kit format, fall back to text-only
-            const message = integration.config.useBlocks !== false
-              ? buildDailySummary(siteResults, regressions)
-              : buildDailySummaryText(siteResults, regressions);
+      // Determine whether to send Slack (default: yes if integration exists, unless schedule says no)
+      const shouldSendSlack = scheduleNotifySlack !== undefined ? scheduleNotifySlack : true;
+      // Determine whether to send Email (default: no unless schedule says yes)
+      const shouldSendEmail = scheduleNotifyEmail !== undefined ? scheduleNotifyEmail : false;
 
-            await sendSlackMessage(integration.config.webhookUrl, message);
-            notificationsSent.push({ teamId, type: 'slack' });
-          } catch (err) {
-            console.error(`Slack notification failed for team ${teamId}:`, err.message);
+      if (shouldSendSlack) {
+        for (const integration of integrations) {
+          if (integration.type === 'slack' && integration.config?.webhookUrl) {
+            try {
+              // Use Block Kit format, fall back to text-only
+              const message = integration.config.useBlocks !== false
+                ? buildDailySummary(siteResults, regressions)
+                : buildDailySummaryText(siteResults, regressions);
+
+              await sendSlackMessage(integration.config.webhookUrl, message);
+              notificationsSent.push({ teamId, type: 'slack' });
+            } catch (err) {
+              console.error(`Slack notification failed for team ${teamId}:`, err.message);
+            }
           }
         }
+      }
+
+      // Send email report if requested by schedule or email integration
+      if (shouldSendEmail) {
+        try {
+          // Build site data for the email
+          const emailSites = [];
+          for (const [, { site, results: siteData }] of siteResults) {
+            emailSites.push({
+              site,
+              mobile: siteData.mobile || null,
+              desktop: siteData.desktop || null,
+            });
+          }
+
+          // Gather email recipients from integration config
+          const recipientSet = new Set();
+          const emailIntegration = integrations.find((i) => i.type === 'email' && i.enabled);
+          if (emailIntegration?.config?.emails) {
+            emailIntegration.config.emails.split(',').map((e) => e.trim()).forEach((e) => recipientSet.add(e));
+          }
+          // Fallback to env var
+          if (recipientSet.size === 0 && process.env.EMAIL_TO) {
+            process.env.EMAIL_TO.split(',').map((e) => e.trim()).forEach((e) => recipientSet.add(e));
+          }
+
+          const recipients = Array.from(recipientSet);
+          if (recipients.length > 0 && emailSites.length > 0) {
+            const html = buildReportHTML(emailSites);
+            const date = new Date().toISOString().slice(0, 10);
+            await sendReportEmail({
+              to: recipients,
+              subject: `Webpulse Report — ${date}`,
+              html,
+            });
+            notificationsSent.push({ teamId, type: 'email' });
+          }
+        } catch (err) {
+          console.error(`Email notification failed for team ${teamId}:`, err.message);
+        }
+      }
+    }
+
+    // Update schedule status to completed if this was triggered by a schedule
+    if (scheduleId) {
+      try {
+        const { data: schedule } = await supabase
+          .from('integrations')
+          .select('config')
+          .eq('id', scheduleId)
+          .single();
+
+        if (schedule) {
+          await supabase
+            .from('integrations')
+            .update({ config: { ...schedule.config, status: 'completed', completedAt: new Date().toISOString() } })
+            .eq('id', scheduleId);
+        }
+      } catch (err) {
+        console.error(`Failed to update schedule ${scheduleId} status:`, err.message);
       }
     }
 
