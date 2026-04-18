@@ -91,7 +91,20 @@ export async function POST(request) {
 
     if (error) throw error;
 
-    return NextResponse.json({ schedule: data }, { status: 201 });
+    // Try to enqueue a QStash delayed job that fires at the scheduled time.
+    // Best-effort: if QStash is unconfigured, the user can still use "Run Now".
+    let autoFireStatus = 'none';
+    try {
+      const { enqueueScheduleFire } = await import('@/lib/queue');
+      const baseUrl = getBaseUrl(request);
+      await enqueueScheduleFire(data.id, scheduleDate, baseUrl);
+      autoFireStatus = 'queued';
+    } catch (qstashErr) {
+      console.error('Failed to enqueue auto-fire (schedule still created):', qstashErr.message);
+      autoFireStatus = `failed: ${qstashErr.message}`;
+    }
+
+    return NextResponse.json({ schedule: data, autoFire: autoFireStatus }, { status: 201 });
   } catch (error) {
     console.error('Schedules POST error:', error);
     return NextResponse.json(
@@ -99,6 +112,16 @@ export async function POST(request) {
       { status: 500 }
     );
   }
+}
+
+function getBaseUrl(request) {
+  // Prefer explicit env var for production (avoids Vercel preview URL issues)
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
+  }
+  const host = request.headers.get('host');
+  const protocol = host?.includes('localhost') ? 'http' : 'https';
+  return `${protocol}://${host}`;
 }
 
 // DELETE /api/schedules?id=xxx

@@ -97,13 +97,20 @@ export default function ScheduleManager({ teamId }) {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to create schedule');
+        throw new Error(data.details || data.error || 'Failed to create schedule');
       }
 
       const data = await res.json();
       setSchedules((prev) => [data.schedule, ...prev]);
       setShowForm(false);
       resetForm();
+
+      // Warn if auto-fire couldn't be queued (user can still use Run Now)
+      if (data.autoFire && data.autoFire.startsWith('failed')) {
+        setError(
+          `Schedule saved, but automatic firing is not available: ${data.autoFire.replace('failed: ', '')}. Use "Run Now" to trigger it manually.`
+        );
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -125,21 +132,37 @@ export default function ScheduleManager({ teamId }) {
 
   async function handleRunNow(scheduleId) {
     try {
+      // Mark optimistically as running in the UI
+      setSchedules((prev) =>
+        prev.map((s) =>
+          s.id === scheduleId ? { ...s, config: { ...s.config, status: 'running' } } : s
+        )
+      );
+
       const res = await fetch('/api/schedules/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scheduleId }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to run scan');
+        throw new Error(data.details || data.error || 'Failed to run scan');
       }
 
-      // Refresh schedules to see updated status
+      // Check for per-schedule errors in the results array
+      const result = (data.results || [])[0];
+      if (result && result.status === 'failed') {
+        throw new Error(result.error || 'Scan failed');
+      }
+
+      // Refresh schedules to see final status (completed)
       await fetchSchedules();
     } catch (err) {
       setError(err.message);
+      // Refresh to pick up the 'failed' status from the DB
+      await fetchSchedules();
     }
   }
 
@@ -328,14 +351,19 @@ function ScheduleRow({ schedule, onDelete, onRunNow }) {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        {status === 'pending' && (
+        {(status === 'pending' || status === 'failed' || status === 'completed') && (
           <button
             onClick={() => onRunNow(schedule.id)}
             className="px-3 py-1.5 rounded-lg border border-gray-600 text-xs text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
             title="Run this scan now"
           >
-            Run Now
+            {status === 'failed' ? 'Retry' : status === 'completed' ? 'Run Again' : 'Run Now'}
           </button>
+        )}
+        {config.error && (
+          <span className="text-xs text-red-400 max-w-xs truncate" title={config.error}>
+            {config.error}
+          </span>
         )}
         <button
           onClick={() => onDelete(schedule.id)}

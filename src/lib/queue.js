@@ -67,6 +67,24 @@ export async function enqueueNotify(teamSiteMap, baseUrl, scheduleOptions = {}) 
   return result;
 }
 
+// Enqueue a delayed message that fires a scheduled scan at the scheduled time.
+// QStash `notBefore` (unix timestamp seconds) delivers the message at exactly that moment.
+// If the time is in the past, it fires immediately.
+export async function enqueueScheduleFire(scheduleId, scheduledAt, baseUrl) {
+  const client = getClient();
+  const when = new Date(scheduledAt);
+  const notBeforeSec = Math.max(Math.floor(when.getTime() / 1000), Math.floor(Date.now() / 1000));
+
+  const result = await client.publishJSON({
+    url: `${baseUrl}/api/schedules/run`,
+    body: { scheduleId },
+    retries: 2,
+    notBefore: notBeforeSec,
+  });
+
+  return result;
+}
+
 // Verify that an incoming request is from QStash
 // Returns the parsed JSON body if valid, throws on failure
 export async function verifyQStashSignature(request) {
