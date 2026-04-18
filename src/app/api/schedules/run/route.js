@@ -155,9 +155,11 @@ async function runScheduleInline(supabase, schedule) {
     const regressions = await detectAllRegressions(supabase, siteResults);
 
     // Send notifications based on schedule preferences
+    const baseUrl = getPublicBaseUrl();
     const notifications = await sendNotifications(supabase, teamId, siteResults, regressions, {
       notifySlack: cfg.notifySlack,
       notifyEmail: cfg.notifyEmail,
+      baseUrl,
     });
 
     // Update schedule status to completed
@@ -229,7 +231,7 @@ async function scanSiteStrategy(site, strategy, apiKey) {
     });
   }
 
-  // Return the DB row (with scores etc.) shaped like scan_results table
+  // Return the DB row (with scores + audits) shaped like scan_results table
   return {
     siteId: site.id,
     site,
@@ -246,6 +248,7 @@ async function scanSiteStrategy(site, strategy, apiKey) {
       tbt: result.vitals.tbt,
       cls: result.vitals.cls,
       si: result.vitals.si,
+      audits: result.audits,
     },
   };
 }
@@ -288,7 +291,7 @@ async function detectAllRegressions(supabase, siteResults) {
   return regressions;
 }
 
-async function sendNotifications(supabase, teamId, siteResults, regressions, { notifySlack, notifyEmail }) {
+async function sendNotifications(supabase, teamId, siteResults, regressions, { notifySlack, notifyEmail, baseUrl }) {
   const integrations = await getTeamIntegrations(teamId);
   const sent = [];
 
@@ -296,7 +299,7 @@ async function sendNotifications(supabase, teamId, siteResults, regressions, { n
     const slack = integrations.find((i) => i.type === 'slack' && i.enabled);
     if (slack?.config?.webhookUrl) {
       try {
-        const message = buildDailySummary(siteResults, regressions);
+        const message = buildDailySummary(siteResults, regressions, { baseUrl });
         await sendSlackMessage(slack.config.webhookUrl, message);
         sent.push('slack');
       } catch (err) {
@@ -327,7 +330,7 @@ async function sendNotifications(supabase, teamId, siteResults, regressions, { n
 
       const recipients = Array.from(recipientSet);
       if (recipients.length > 0 && emailSites.length > 0) {
-        const html = buildReportHTML(emailSites);
+        const html = buildReportHTML(emailSites, { baseUrl });
         const date = new Date().toISOString().slice(0, 10);
         await sendReportEmail({
           to: recipients,
@@ -345,6 +348,17 @@ async function sendNotifications(supabase, teamId, siteResults, regressions, { n
   }
 
   return sent;
+}
+
+// Get the public URL for building links in notifications
+function getPublicBaseUrl() {
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return '';
 }
 
 // For recurring schedules, create the next occurrence

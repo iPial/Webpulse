@@ -112,14 +112,18 @@ export async function POST(request) {
       // Determine whether to send Email (default: no unless schedule says yes)
       const shouldSendEmail = scheduleNotifyEmail !== undefined ? scheduleNotifyEmail : false;
 
+      const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
+        ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
+        : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+
       if (shouldSendSlack) {
         for (const integration of integrations) {
           if (integration.type === 'slack' && integration.config?.webhookUrl) {
             try {
               // Use Block Kit format, fall back to text-only
               const message = integration.config.useBlocks !== false
-                ? buildDailySummary(siteResults, regressions)
-                : buildDailySummaryText(siteResults, regressions);
+                ? buildDailySummary(siteResults, regressions, { baseUrl: publicBaseUrl })
+                : buildDailySummaryText(siteResults, regressions, { baseUrl: publicBaseUrl });
 
               await sendSlackMessage(integration.config.webhookUrl, message);
               notificationsSent.push({ teamId, type: 'slack' });
@@ -156,7 +160,7 @@ export async function POST(request) {
 
           const recipients = Array.from(recipientSet);
           if (recipients.length > 0 && emailSites.length > 0) {
-            const html = buildReportHTML(emailSites);
+            const html = buildReportHTML(emailSites, { baseUrl: publicBaseUrl });
             const date = new Date().toISOString().slice(0, 10);
             await sendReportEmail({
               to: recipients,

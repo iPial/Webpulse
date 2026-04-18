@@ -30,83 +30,132 @@ export async function sendSlackAlert(text) {
 // Message Builders
 // ============================================
 
-// Format a vitals line from a result object (fcp, lcp, tbt, cls are display strings like "2.1 s")
-function formatVitals(result) {
-  const parts = [];
-  if (result.lcp) parts.push(`LCP: ${result.lcp}`);
-  if (result.fcp) parts.push(`FCP: ${result.fcp}`);
-  if (result.tbt) parts.push(`TBT: ${result.tbt}`);
-  if (result.cls) parts.push(`CLS: ${result.cls}`);
-  return parts.length > 0 ? parts.join('  \u2022  ') : null;
+function auditCounts(result) {
+  const a = result?.audits;
+  if (!a) return null;
+  return {
+    critical: Array.isArray(a.critical) ? a.critical.length : 0,
+    improvement: Array.isArray(a.improvement) ? a.improvement.length : 0,
+    optional: Array.isArray(a.optional) ? a.optional.length : 0,
+  };
 }
 
-// Format a scores line with dot separators
+function formatCountsLine(counts) {
+  if (!counts) return null;
+  const parts = [];
+  if (counts.critical > 0) parts.push(`🔴 ${counts.critical} critical`);
+  if (counts.improvement > 0) parts.push(`🟡 ${counts.improvement} to improve`);
+  if (counts.optional > 0) parts.push(`🟢 ${counts.optional} optional`);
+  if (parts.length === 0) return '✅ No issues to fix';
+  return parts.join('   ');
+}
+
 function formatScores(result) {
   return (
-    `Performance: ${getScoreEmoji(result.performance)} ${result.performance}  \u2022  ` +
-    `Accessibility: ${result.accessibility}  \u2022  ` +
-    `Best Practices: ${result.best_practices}  \u2022  ` +
-    `SEO: ${result.seo}`
+    `*Perf ${getScoreEmoji(result.performance)} ${result.performance}*  ` +
+    `·  A11y ${result.accessibility}  ` +
+    `·  BP ${result.best_practices}  ` +
+    `·  SEO ${result.seo}`
   );
 }
 
-// Build the daily scan summary for Slack (Block Kit format)
-export function buildDailySummary(siteResults, regressions) {
-  const blocks = [
-    {
-      type: 'header',
-      text: { type: 'plain_text', text: '\ud83d\udcca Webpulse Scan Report', emoji: true },
-    },
-    { type: 'divider' },
-  ];
+function formatVitals(result) {
+  const parts = [];
+  if (result.lcp) parts.push(`LCP ${result.lcp}`);
+  if (result.fcp) parts.push(`FCP ${result.fcp}`);
+  if (result.tbt) parts.push(`TBT ${result.tbt}`);
+  if (result.cls) parts.push(`CLS ${result.cls}`);
+  return parts.length > 0 ? parts.join('  ·  ') : null;
+}
 
-  let siteIndex = 0;
+// Build the scan summary for Slack (Block Kit format).
+// Each site gets: name, mobile/desktop scores, issue counts, "View Report" link.
+export function buildDailySummary(siteResults, regressions, { baseUrl = '' } = {}) {
+  const blocks = [];
+
+  // Header
+  const totalSites = siteResults.size;
+  const totalCritical = countTotalCritical(siteResults);
+
+  blocks.push({
+    type: 'header',
+    text: { type: 'plain_text', text: '📊 Webpulse Scan Report', emoji: true },
+  });
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text:
+        `*${totalSites}* site${totalSites !== 1 ? 's' : ''} scanned` +
+        (totalCritical > 0
+          ? `  ·  🔴 *${totalCritical}* critical issue${totalCritical !== 1 ? 's' : ''}`
+          : '  ·  ✅ No critical issues'),
+    },
+  });
+
+  blocks.push({ type: 'divider' });
+
+  // Per-site sections
+  let first = true;
   for (const [, { site, results }] of siteResults) {
     const mobile = results.mobile;
     const desktop = results.desktop;
-
     if (!mobile && !desktop) continue;
 
-    // Add divider between sites (not before the first one)
-    if (siteIndex > 0) {
-      blocks.push({ type: 'divider' });
-    }
+    if (!first) blocks.push({ type: 'divider' });
+    first = false;
 
-    const lines = [`\ud83c\udf10 *${escapeSlack(site.name)}*`];
+    // Title with URL
+    const lines = [`🌐 *<${site.url}|${escapeSlack(site.name)}>*`];
 
     if (mobile) {
       lines.push('');
-      lines.push('\ud83d\udcf1 *Mobile*');
-      lines.push(formatScores(mobile));
+      lines.push(`📱 *Mobile*   ${formatScores(mobile)}`);
       const vitals = formatVitals(mobile);
-      if (vitals) lines.push(vitals);
+      if (vitals) lines.push(`_${vitals}_`);
+      const counts = formatCountsLine(auditCounts(mobile));
+      if (counts) lines.push(counts);
     }
 
     if (desktop) {
       lines.push('');
-      lines.push('\ud83d\udda5\ufe0f *Desktop*');
-      lines.push(formatScores(desktop));
+      lines.push(`🖥️ *Desktop*   ${formatScores(desktop)}`);
       const vitals = formatVitals(desktop);
-      if (vitals) lines.push(vitals);
+      if (vitals) lines.push(`_${vitals}_`);
     }
 
-    blocks.push({
+    const sectionBlock = {
       type: 'section',
       text: { type: 'mrkdwn', text: lines.join('\n') },
-    });
+    };
 
-    siteIndex++;
+    // "View Report" button — only if baseUrl configured
+    if (baseUrl) {
+      sectionBlock.accessory = {
+        type: 'button',
+        text: { type: 'plain_text', text: 'View Report', emoji: true },
+        url: `${baseUrl}/site/${site.id}`,
+        action_id: `view_${site.id}`,
+      };
+    }
+
+    blocks.push(sectionBlock);
   }
 
   // Regression alerts
-  if (regressions.length > 0) {
+  if (regressions && regressions.length > 0) {
     blocks.push({ type: 'divider' });
+    blocks.push({
+      type: 'header',
+      text: { type: 'plain_text', text: '⚠️ Regression Alerts', emoji: true },
+    });
 
-    const regLines = ['\u26a0\ufe0f *Regression Alerts*', ''];
+    const regLines = [];
     for (const { site, regressions: siteRegs } of regressions) {
       for (const reg of siteRegs) {
         regLines.push(
-          `\ud83d\udd3b *${escapeSlack(site.name)}* \u2014 ${reg.category} dropped *${reg.drop}* points  (${reg.previous} \u2192 ${reg.current})`
+          `⬇️ *${escapeSlack(site.name)}* — ${reg.category}: *${reg.previous}* → *${reg.current}* (−${reg.drop})`
         );
       }
     }
@@ -117,13 +166,14 @@ export function buildDailySummary(siteResults, regressions) {
     });
   }
 
-  // Timestamp footer
+  // Footer
   blocks.push({
     type: 'context',
     elements: [
       {
         type: 'mrkdwn',
-        text: `\ud83d\udd52 Scanned at ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
+        text: `🕒 Scanned ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC` +
+          (baseUrl ? `  ·  <${baseUrl}|Open Dashboard>` : ''),
       },
     ],
   });
@@ -134,7 +184,7 @@ export function buildDailySummary(siteResults, regressions) {
     truncated.push({
       type: 'context',
       elements: [
-        { type: 'mrkdwn', text: `_\u2026and ${blocks.length - 48} more items (truncated due to Slack limits)_` },
+        { type: 'mrkdwn', text: `_…and ${blocks.length - 48} more items (truncated due to Slack limits)_` },
       ],
     });
     return { blocks: truncated };
@@ -143,71 +193,70 @@ export function buildDailySummary(siteResults, regressions) {
   return { blocks };
 }
 
-// Build a simple text-only summary (for webhooks that don't support blocks)
-export function buildDailySummaryText(siteResults, regressions) {
-  const lines = ['\ud83d\udcca *Webpulse Scan Report*', '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500', ''];
+// Text-only fallback for webhooks that don't support blocks
+export function buildDailySummaryText(siteResults, regressions, { baseUrl = '' } = {}) {
+  const lines = ['*📊 Webpulse Scan Report*', ''];
 
   for (const [, { site, results }] of siteResults) {
     const mobile = results.mobile;
     const desktop = results.desktop;
-
     if (!mobile && !desktop) continue;
 
-    lines.push(`\ud83c\udf10 *${escapeSlack(site.name)}*`);
+    lines.push(`🌐 *<${site.url}|${escapeSlack(site.name)}>*`);
 
     if (mobile) {
-      lines.push('');
-      lines.push('\ud83d\udcf1 *Mobile*');
-      lines.push(formatScores(mobile));
-      const vitals = formatVitals(mobile);
-      if (vitals) lines.push(vitals);
+      lines.push(`   📱 Mobile: ${formatScores(mobile)}`);
+      const v = formatVitals(mobile);
+      if (v) lines.push(`      _${v}_`);
+      const c = formatCountsLine(auditCounts(mobile));
+      if (c) lines.push(`      ${c}`);
     }
 
     if (desktop) {
-      lines.push('');
-      lines.push('\ud83d\udda5\ufe0f *Desktop*');
-      lines.push(formatScores(desktop));
-      const vitals = formatVitals(desktop);
-      if (vitals) lines.push(vitals);
+      lines.push(`   🖥️ Desktop: ${formatScores(desktop)}`);
+      const v = formatVitals(desktop);
+      if (v) lines.push(`      _${v}_`);
+    }
+
+    if (baseUrl) {
+      lines.push(`   <${baseUrl}/site/${site.id}|View full report →>`);
     }
 
     lines.push('');
-    lines.push('\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
-    lines.push('');
   }
 
-  if (regressions.length > 0) {
-    lines.push('\u26a0\ufe0f *Regression Alerts*');
-    lines.push('');
+  if (regressions && regressions.length > 0) {
+    lines.push('⚠️ *Regression Alerts*');
     for (const { site, regressions: siteRegs } of regressions) {
       for (const reg of siteRegs) {
         lines.push(
-          `\ud83d\udd3b *${escapeSlack(site.name)}* \u2014 ${reg.category} dropped *${reg.drop}* points  (${reg.previous} \u2192 ${reg.current})`
+          `   ⬇️ ${escapeSlack(site.name)} — ${reg.category}: ${reg.previous} → ${reg.current} (−${reg.drop})`
         );
       }
     }
-    lines.push('');
   }
-
-  lines.push(`\ud83d\udd52 Scanned at ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`);
 
   return { text: lines.join('\n') };
 }
 
 // Build a regression alert for immediate notification
 export function buildRegressionAlert(siteName, regressions) {
-  const lines = [
-    `\ud83d\udea8 *Regression Alert: ${escapeSlack(siteName)}*`,
-    '',
-  ];
+  const lines = [`🚨 *Regression Alert: ${escapeSlack(siteName)}*`, ''];
 
   for (const reg of regressions) {
-    lines.push(
-      `\ud83d\udd3b ${reg.category}: *${reg.previous}* \u2192 *${reg.current}*  (\u2212${reg.drop} points)`
-    );
+    lines.push(`⬇️ ${reg.category}: *${reg.previous}* → *${reg.current}* (−${reg.drop})`);
   }
 
   return { text: lines.join('\n') };
+}
+
+function countTotalCritical(siteResults) {
+  let total = 0;
+  for (const [, { results }] of siteResults) {
+    const r = results.mobile || results.desktop;
+    if (r?.audits?.critical?.length) total += r.audits.critical.length;
+  }
+  return total;
 }
 
 // Escape special Slack mrkdwn characters in user-provided text

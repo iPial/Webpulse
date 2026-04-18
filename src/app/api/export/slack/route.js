@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getUserTeams, getLatestResults, getTeamIntegrations } from '@/lib/db';
-import { sendSlackMessage, buildDailySummaryText } from '@/lib/slack';
+import { sendSlackMessage, buildDailySummary } from '@/lib/slack';
 
 // POST /api/export/slack
 // Body: { teamId? }
@@ -47,7 +47,11 @@ export async function POST(request) {
       siteResults.get(row.site_id).results[row.strategy] = row;
     }
 
-    const message = buildDailySummaryText(siteResults, []);
+    const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
+      ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
+      : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+
+    const message = buildDailySummary(siteResults, [], { baseUrl: publicBaseUrl });
     await sendSlackMessage(webhookUrl, message);
 
     return NextResponse.json({ success: true });

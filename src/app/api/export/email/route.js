@@ -80,7 +80,11 @@ export async function POST(request) {
     const sites = Array.from(siteMap.values());
 
     // Build and send email
-    const html = buildReportHTML(sites);
+    const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
+      ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
+      : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+
+    const html = buildReportHTML(sites, { baseUrl: publicBaseUrl });
     const date = new Date().toISOString().slice(0, 10);
 
     const data = await sendReportEmail({
