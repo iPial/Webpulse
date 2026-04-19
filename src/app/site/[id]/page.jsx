@@ -98,11 +98,11 @@ function SiteHeader({ site, logoUrl }) {
         </svg>
       </Link>
       {logoUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={logoUrl}
           alt=""
           className="w-10 h-10 rounded-lg border border-gray-800 bg-gray-900 object-contain p-1 shrink-0"
-          onError={(e) => { e.currentTarget.style.display = 'none'; }}
         />
       )}
       <div className="min-w-0">

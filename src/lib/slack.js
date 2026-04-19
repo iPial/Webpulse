@@ -147,21 +147,27 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
     if (!first) blocks.push({ type: 'divider' });
     first = false;
 
-    const logoUrl = resolveLogoUrl(site, 64);
+    const logoUrl = resolveLogoUrl(site, 48);
 
-    // 3a) Site header: logo on the right, name + URL on the left
-    const headerBlock = {
-      type: 'section',
-      text: { type: 'mrkdwn', text: `*<${site.url}|${escapeSlack(site.name)}>*\n${escapeSlack(site.url)}` },
-    };
+    // 3a) Site header: small inline logo on the left + bold name + URL.
+    // Context block renders images at ~20px, keeping the header compact.
+    const contextElements = [];
     if (logoUrl) {
-      headerBlock.accessory = {
+      contextElements.push({
         type: 'image',
         image_url: logoUrl,
-        alt_text: `${site.name} logo`,
-      };
+        alt_text: site.name,
+      });
     }
-    blocks.push(headerBlock);
+    contextElements.push({
+      type: 'mrkdwn',
+      text: `*<${site.url}|${escapeSlack(site.name)}>*  ·  ${escapeSlack(site.url)}`,
+    });
+
+    blocks.push({
+      type: 'context',
+      elements: contextElements,
+    });
 
     // 3b) Mobile block
     if (mobile) {
