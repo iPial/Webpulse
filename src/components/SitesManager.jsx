@@ -37,6 +37,23 @@ export default function SitesManager({ teamId, initialSites }) {
     }
   }
 
+  async function handleToggleWPRocket(site) {
+    const current = site.tags || [];
+    const hasTag = current.includes('wp-rocket');
+    const nextTags = hasTag ? current.filter((t) => t !== 'wp-rocket') : [...current, 'wp-rocket'];
+
+    const res = await fetch(`/api/sites/${site.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags: nextTags }),
+    });
+
+    if (res.ok) {
+      const { site: updated } = await res.json();
+      setSites((prev) => prev.map((s) => (s.id === site.id ? updated : s)));
+    }
+  }
+
   async function handleDelete(siteId) {
     if (!confirm('Delete this site and all its scan data?')) return;
 
@@ -152,16 +169,29 @@ export default function SitesManager({ teamId, initialSites }) {
                       {site.enabled ? getNextScanTime(site.scan_frequency) : '—'}
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <button
-                        onClick={() => handleToggle(site.id, site.enabled)}
-                        className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
-                          site.enabled
-                            ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
-                            : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
-                        }`}
-                      >
-                        {site.enabled ? 'Active' : 'Paused'}
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                        <button
+                          onClick={() => handleToggle(site.id, site.enabled)}
+                          className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
+                            site.enabled
+                              ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                              : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                          }`}
+                        >
+                          {site.enabled ? 'Active' : 'Paused'}
+                        </button>
+                        <button
+                          onClick={() => handleToggleWPRocket(site)}
+                          title="Tag this site as using WP Rocket. AI analysis will give WP Rocket-specific fix instructions."
+                          className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+                            site.tags?.includes('wp-rocket')
+                              ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20'
+                              : 'bg-gray-800 text-gray-500 hover:bg-gray-700 border border-gray-700'
+                          }`}
+                        >
+                          🚀 WP Rocket
+                        </button>
+                      </div>
                     </td>
                     <td className="px-5 py-3 text-right space-x-3">
                       <button

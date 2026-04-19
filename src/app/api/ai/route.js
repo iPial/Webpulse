@@ -94,7 +94,7 @@ async function callAnthropic(apiKey, prompt) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
+      max_tokens: 2500,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
@@ -118,7 +118,7 @@ async function callOpenAI(apiKey, prompt) {
     },
     body: JSON.stringify({
       model: 'gpt-4o',
-      max_tokens: 1500,
+      max_tokens: 2500,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
@@ -156,57 +156,108 @@ async function callGemini(apiKey, prompt) {
 }
 
 function buildPrompt(site, mobile, desktop) {
+  const isWPRocket = Array.isArray(site.tags) && site.tags.includes('wp-rocket');
+  return isWPRocket
+    ? buildWPRocketPrompt(site, mobile, desktop)
+    : buildGenericPrompt(site, mobile, desktop);
+}
+
+function buildScoreBlock(label, result) {
+  const lines = [`## ${label} Scores`];
+  lines.push(`Performance: ${result.performance}/100`);
+  lines.push(`Accessibility: ${result.accessibility}/100`);
+  lines.push(`Best Practices: ${result.best_practices}/100`);
+  lines.push(`SEO: ${result.seo}/100`);
+  lines.push(`Core Vitals — LCP: ${result.lcp || 'N/A'} · FCP: ${result.fcp || 'N/A'} · TBT: ${result.tbt || 'N/A'} · CLS: ${result.cls || 'N/A'}`);
+  return lines;
+}
+
+// Render each audit with its full Lighthouse description so the AI can
+// produce specific, grounded advice.
+function buildAuditList(audits, heading, limit = 12) {
+  if (!audits || audits.length === 0) return [];
+  const lines = ['', `### ${heading}`];
+  for (const a of audits.slice(0, limit)) {
+    lines.push('');
+    lines.push(`**${a.title}** (score ${a.score}${a.displayValue ? `, ${a.displayValue}` : ''})`);
+    if (a.description) {
+      lines.push(a.description.trim());
+    }
+  }
+  return lines;
+}
+
+function buildWPRocketPrompt(site, mobile, desktop) {
+  const parts = [];
+  parts.push(`You are a WordPress performance expert who specialises in WP Rocket caching and optimisation.`);
+  parts.push(`The site "${site.name}" (${site.url}) runs WordPress with the WP Rocket plugin.`);
+  parts.push('');
+  parts.push(`For EACH issue below, respond in this EXACT markdown format:`);
+  parts.push('');
+  parts.push(`### [Issue title]`);
+  parts.push(`- **Impact**: [High / Medium / Low] · Expected gain: ~+N points`);
+  parts.push(`- **WP Rocket path**: \`[Tab] → [Section] → [Option]\``);
+  parts.push(`- **Action**: [precise toggle / setting / value to change]`);
+  parts.push(`- **Caveats**: [known conflicts, compatibility, things to verify after]`);
+  parts.push('');
+  parts.push(`Only reference real WP Rocket tabs: Dashboard, Cache, File Optimization, Media, Preload, Advanced Rules, Database, CDN, Heartbeat, Add-ons, Image Optimization.`);
+  parts.push(`If an issue cannot be fixed with WP Rocket, say so plainly and suggest the correct tool (e.g. image plugin, hosting server setting, theme change).`);
+  parts.push(`Do not invent WP Rocket features. If unsure, say "not directly addressable via WP Rocket" and explain.`);
+  parts.push('');
+  parts.push(`Order issues by highest expected score gain first. Prioritise issues that affect Core Web Vitals (LCP, TBT, CLS).`);
+  parts.push('');
+  parts.push(`Cover at most 8 issues. Keep each entry under 120 words.`);
+  parts.push('');
+  parts.push('---');
+
+  if (mobile) {
+    parts.push('');
+    parts.push(...buildScoreBlock('Mobile', mobile));
+    if (mobile.audits) {
+      parts.push(...buildAuditList(mobile.audits.critical || [], 'Critical Issues (Mobile)'));
+      parts.push(...buildAuditList(mobile.audits.improvement || [], 'Improvement Opportunities (Mobile)', 10));
+    }
+  }
+
+  if (desktop) {
+    parts.push('');
+    parts.push(...buildScoreBlock('Desktop', desktop));
+  }
+
+  parts.push('');
+  parts.push('Begin your response now. Do not include any preamble — start directly with the first `### [Issue title]` heading.');
+
+  return parts.join('\n');
+}
+
+function buildGenericPrompt(site, mobile, desktop) {
   const parts = [
     `Analyze the PageSpeed Insights results for "${site.name}" (${site.url}) and provide actionable recommendations.`,
     '',
   ];
 
   if (mobile) {
-    parts.push('## Mobile Results');
-    parts.push(`Performance: ${mobile.performance}/100`);
-    parts.push(`Accessibility: ${mobile.accessibility}/100`);
-    parts.push(`Best Practices: ${mobile.best_practices}/100`);
-    parts.push(`SEO: ${mobile.seo}/100`);
-    parts.push(`FCP: ${mobile.fcp || 'N/A'} | LCP: ${mobile.lcp || 'N/A'} | TBT: ${mobile.tbt || 'N/A'} | CLS: ${mobile.cls || 'N/A'}`);
-
+    parts.push(...buildScoreBlock('Mobile', mobile));
     if (mobile.audits) {
-      const criticals = mobile.audits.critical || [];
-      const improvements = mobile.audits.improvement || [];
-
-      if (criticals.length > 0) {
-        parts.push('');
-        parts.push('### Critical Issues (Mobile)');
-        for (const a of criticals.slice(0, 10)) {
-          parts.push(`- ${a.title} (score: ${a.score})${a.displayValue ? ` — ${a.displayValue}` : ''}`);
-        }
-      }
-
-      if (improvements.length > 0) {
-        parts.push('');
-        parts.push('### Improvement Opportunities (Mobile)');
-        for (const a of improvements.slice(0, 10)) {
-          parts.push(`- ${a.title} (score: ${a.score})${a.displayValue ? ` — ${a.displayValue}` : ''}`);
-        }
-      }
+      parts.push(...buildAuditList(mobile.audits.critical || [], 'Critical Issues (Mobile)'));
+      parts.push(...buildAuditList(mobile.audits.improvement || [], 'Improvement Opportunities (Mobile)', 10));
     }
   }
 
   if (desktop) {
     parts.push('');
-    parts.push('## Desktop Results');
-    parts.push(`Performance: ${desktop.performance}/100`);
-    parts.push(`Accessibility: ${desktop.accessibility}/100`);
-    parts.push(`Best Practices: ${desktop.best_practices}/100`);
-    parts.push(`SEO: ${desktop.seo}/100`);
+    parts.push(...buildScoreBlock('Desktop', desktop));
   }
 
   parts.push('');
-  parts.push('Provide a prioritized list of 5-7 specific, actionable recommendations. For each recommendation:');
-  parts.push('1. State the issue clearly');
-  parts.push('2. Explain the expected impact on scores');
-  parts.push('3. Provide concrete steps to fix it');
+  parts.push('For each issue provide:');
   parts.push('');
-  parts.push('Focus on the highest-impact fixes first. Be specific to this site, not generic advice.');
+  parts.push('### [Issue title]');
+  parts.push('- **Impact**: [High / Medium / Low] · Expected gain: ~+N points');
+  parts.push('- **Action**: [specific, concrete steps to fix it]');
+  parts.push('- **Caveats**: [things to watch out for]');
+  parts.push('');
+  parts.push('Order by highest expected score gain first. Cover at most 8 issues. Start directly with the first heading — no preamble.');
 
   return parts.join('\n');
 }

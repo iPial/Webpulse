@@ -170,6 +170,33 @@ export async function deleteSite(cookieStore, siteId) {
   if (error) throw error;
 }
 
+// Get a map of siteId → mobile scan history for the given team (last `days` days).
+// Used by the Overview page to render per-site trend charts in one round-trip.
+export async function getSiteHistoryForOverview(cookieStore, teamId, { days = 14 } = {}) {
+  const supabase = createServerSupabase(cookieStore);
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+
+  const { data: sites } = await supabase
+    .from('sites')
+    .select('id')
+    .eq('team_id', teamId);
+  if (!sites?.length) return {};
+
+  const { data: rows } = await supabase
+    .from('scan_results')
+    .select('site_id, performance, accessibility, best_practices, seo, scanned_at')
+    .in('site_id', sites.map((s) => s.id))
+    .eq('strategy', 'mobile')
+    .gte('scanned_at', since)
+    .order('scanned_at', { ascending: true });
+
+  const grouped = {};
+  for (const row of rows || []) {
+    (grouped[row.site_id] ||= []).push(row);
+  }
+  return grouped;
+}
+
 // Get sites due for scanning (service role — no RLS)
 // frequency: 'daily', 'weekly', or 'monthly' — filters sites by scan_frequency
 export async function getEnabledSites(frequency = 'daily') {

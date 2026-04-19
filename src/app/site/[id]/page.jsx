@@ -5,6 +5,7 @@ import StrategyTabs from '@/components/StrategyTabs';
 import AIRecommendations from '@/components/AIRecommendations';
 import ScanHistoryTable from '@/components/ScanHistoryTable';
 import SiteDetailActions from '@/components/SiteDetailActions';
+import SiteProgress from '@/components/SiteProgress';
 
 export default async function SiteDetailPage({ params }) {
   const { id } = await params;
@@ -73,8 +74,9 @@ export default async function SiteDetailPage({ params }) {
 
       {/* Main content */}
       <div className="mt-6 space-y-6">
+        <SiteProgress results={results} />
         <StrategyTabs mobile={mobile} desktop={desktop} />
-        <AIRecommendations siteId={site.id} />
+        <AIRecommendations siteId={site.id} isWPRocket={site.tags?.includes('wp-rocket')} />
         <ScanHistoryTable results={results} />
       </div>
     </div>

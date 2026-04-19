@@ -1,8 +1,7 @@
 import { cookies } from 'next/headers';
-import { ensureTeam, getLatestResults, getRecentActivity } from '@/lib/db';
+import { ensureTeam, getLatestResults, getRecentActivity, getSiteHistoryForOverview } from '@/lib/db';
 import { createServerSupabase } from '@/lib/supabase';
-import SiteCard from '@/components/SiteCard';
-import OverviewStats from '@/components/OverviewStats';
+import SiteReportCard from '@/components/SiteReportCard';
 import OverviewActions from '@/components/OverviewActions';
 import ActivityFeed from '@/components/ActivityFeed';
 
@@ -16,9 +15,10 @@ export default async function OverviewPage() {
   }
 
   const team = await ensureTeam(cookieStore);
-  const [results, activity] = await Promise.all([
+  const [results, activity, historyBySite] = await Promise.all([
     getLatestResults(cookieStore, team.id),
     getRecentActivity(cookieStore, team.id),
+    getSiteHistoryForOverview(cookieStore, team.id, { days: 14 }),
   ]);
 
   // Group results by site with current + previous for regression
@@ -49,91 +49,57 @@ export default async function OverviewPage() {
     return <EmptyState message="No scan results yet. Add sites in Settings and run your first scan." showSetup />;
   }
 
-  const stats = computeStats(sites);
+  // Summary counts (without averaging across different sites)
+  let totalCritical = 0;
+  for (const s of sites) {
+    const r = s.mobile || s.desktop;
+    if (r?.audits?.critical) totalCritical += r.audits.critical.length;
+  }
 
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-white">Overview</h1>
           <p className="text-sm text-gray-400 mt-1">
-            {stats.siteCount} site{stats.siteCount !== 1 ? 's' : ''} monitored
+            <strong className="text-gray-200">{sites.length}</strong> site{sites.length !== 1 ? 's' : ''} monitored
+            {totalCritical > 0 ? (
+              <>
+                {' · '}
+                <span className="text-red-400">{totalCritical} critical issue{totalCritical !== 1 ? 's' : ''} across all sites</span>
+              </>
+            ) : (
+              <>
+                {' · '}
+                <span className="text-green-400">No critical issues</span>
+              </>
+            )}
           </p>
         </div>
         <OverviewActions teamId={team.id} />
       </div>
 
-      {/* Stats */}
-      <OverviewStats stats={stats} />
-
-      {/* Sites Grid */}
-      <div className="mt-6">
-        <h2 className="text-xs text-gray-500 uppercase tracking-wider mb-3">Sites</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {sites.map(({ site, mobile, desktop, prevMobile, prevDesktop }) => (
-            <SiteCard
-              key={site.id}
-              site={site}
-              mobile={mobile}
-              desktop={desktop}
-              prevMobile={prevMobile}
-              prevDesktop={prevDesktop}
-            />
-          ))}
-        </div>
+      {/* Per-site report cards */}
+      <div className="space-y-4">
+        {sites.map(({ site, mobile, desktop, prevMobile }) => (
+          <SiteReportCard
+            key={site.id}
+            site={site}
+            mobile={mobile}
+            desktop={desktop}
+            prevMobile={prevMobile}
+            history={historyBySite[site.id] || []}
+          />
+        ))}
       </div>
 
-      {/* Activity */}
-      <div className="mt-6">
+      {/* Recent activity */}
+      <div className="mt-8">
         <ActivityFeed activity={activity} />
       </div>
     </div>
   );
-}
-
-function computeStats(sites) {
-  let totalPerf = 0;
-  let totalA11y = 0;
-  let totalBP = 0;
-  let totalSEO = 0;
-  let count = 0;
-  let criticalTotal = 0;
-  let improvementTotal = 0;
-  let worstPerformance = 100;
-  let worstSiteName = '';
-
-  for (const { site, mobile, desktop } of sites) {
-    const result = mobile || desktop;
-    if (!result) continue;
-
-    totalPerf += result.performance;
-    totalA11y += result.accessibility;
-    totalBP += result.best_practices;
-    totalSEO += result.seo;
-    count++;
-
-    if (result.performance < worstPerformance) {
-      worstPerformance = result.performance;
-      worstSiteName = site.name;
-    }
-
-    const audits = result.audits || {};
-    criticalTotal += audits.critical?.length || 0;
-    improvementTotal += audits.improvement?.length || 0;
-  }
-
-  return {
-    avgPerformance: count > 0 ? Math.round(totalPerf / count) : 0,
-    avgAccessibility: count > 0 ? Math.round(totalA11y / count) : 0,
-    avgBestPractices: count > 0 ? Math.round(totalBP / count) : 0,
-    avgSEO: count > 0 ? Math.round(totalSEO / count) : 0,
-    siteCount: count,
-    criticalTotal,
-    improvementTotal,
-    worstPerformance: count > 0 ? worstPerformance : null,
-    worstSiteName,
-  };
 }
 
 function EmptyState({ message, showSetup }) {
