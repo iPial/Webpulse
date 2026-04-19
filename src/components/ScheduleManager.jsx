@@ -132,6 +132,25 @@ export default function ScheduleManager({ teamId }) {
     }
   }
 
+  async function handleRunAllPending() {
+    try {
+      const res = await fetch('/api/schedules/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.details || data.error || 'Check failed');
+      // Refresh schedules to show updated statuses
+      await fetchSchedules();
+      if (data.count === 0) {
+        setError('No pending schedules are due right now.');
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function handleRunNow(scheduleId) {
     try {
       // Mark optimistically as running in the UI
@@ -185,12 +204,21 @@ export default function ScheduleManager({ teamId }) {
             Set custom scan times with notification preferences
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-        >
-          {showForm ? 'Cancel' : '+ New Schedule'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRunAllPending}
+            title="Check for any pending schedules and run them now"
+            className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800 text-sm font-medium transition-colors"
+          >
+            Run Pending Now
+          </button>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+          >
+            {showForm ? 'Cancel' : '+ New Schedule'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -201,6 +229,10 @@ export default function ScheduleManager({ teamId }) {
           </button>
         </div>
       )}
+
+      <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3 mb-4 text-xs text-blue-300 leading-relaxed">
+        <strong className="text-blue-200">How scheduling works:</strong> We try to fire each schedule automatically via QStash at its exact time. As a backup, any open dashboard page also checks for due schedules every 60 seconds. If something looks stuck, use <strong>Run Pending Now</strong> or <strong>Run Now</strong> on the specific schedule. Check the <a href="/logs" className="underline hover:text-white">Logs page</a> for a live trace of what&apos;s happening.
+      </div>
 
       {/* Create form */}
       {showForm && (
