@@ -191,6 +191,35 @@ function buildGenericPrompt(site, mobile, desktop) {
 
 // ---------- Compact JSON prompt — for notifications (Slack/email) ----------
 
+// Render a JSON analysis (from the compact prompt) as numbered markdown so
+// the recommendations view and the fix checklist stay in lockstep.
+export function renderCompactAsMarkdown(parsed, { isWPRocket = false } = {}) {
+  if (!parsed?.topFixes?.length) return '';
+
+  const lines = [];
+  if (parsed.summary) {
+    lines.push(`> ${parsed.summary}`);
+    lines.push('');
+  }
+
+  parsed.topFixes.forEach((fix, i) => {
+    const n = i + 1;
+    lines.push(`### ${n}. ${fix.title}`);
+    const meta = [];
+    if (fix.impact) meta.push(`**Impact**: ${fix.impact}`);
+    if (fix.expectedGain) meta.push(`Expected gain: ${fix.expectedGain}`);
+    if (meta.length) lines.push(`- ${meta.join(' · ')}`);
+    if (isWPRocket && fix.rocketPath) {
+      lines.push(`- **WP Rocket path**: \`${fix.rocketPath}\``);
+    }
+    if (fix.action) lines.push(`- **Action**: ${fix.action}`);
+    if (fix.caveats) lines.push(`- **Caveats**: ${fix.caveats}`);
+    lines.push('');
+  });
+
+  return lines.join('\n');
+}
+
 // Asks the model to return ONLY JSON with a one-line summary and one fix
 // per provided issue (critical + improvement). Includes Impact / Expected gain
 // / WP Rocket path / Caveats so the dashboard can render rich per-issue cards.

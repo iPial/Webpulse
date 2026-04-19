@@ -4,16 +4,17 @@ import { getSiteById, getSiteResults, saveSiteAIAnalysis, upsertSiteFixes } from
 import {
   resolveAIConfig,
   callAIProvider,
-  buildFullPrompt,
   buildCompactPrompt,
   parseCompactResponse,
+  renderCompactAsMarkdown,
 } from '@/lib/ai';
 import { logEvent } from '@/lib/logs';
 
 // POST /api/ai
 // Body: { siteId }
-// Returns AI-generated recommendations AND populates the fix checklist.
-// Both runs happen in parallel so the extra call adds no latency in practice.
+// Single source of truth: one AI call returns structured fixes; we render the
+// markdown view AND populate the checklist from the SAME data. This guarantees
+// the counts match.
 export async function POST(request) {
   try {
     const cookieStore = await cookies();
@@ -45,69 +46,69 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No scan results available for analysis' }, { status: 404 });
     }
 
-    const fullPrompt = buildFullPrompt(site, mobile, desktop);
-    const compactPrompt = mobile ? buildCompactPrompt(site, mobile) : null;
+    // We scan mobile (primary metric); desktop scores are shown elsewhere.
+    // Compact prompt covers all critical + improvement issues.
+    const analysisSource = mobile || desktop;
+    const compactPrompt = buildCompactPrompt(site, analysisSource);
     const startedAt = Date.now();
 
-    // Run full markdown + compact JSON in parallel
-    const [fullOutcome, compactOutcome] = await Promise.allSettled([
-      callAIProvider(provider, apiKey, fullPrompt, 2500),
-      compactPrompt
-        ? callAIProvider(provider, apiKey, compactPrompt, 3500)
-        : Promise.resolve(null),
-    ]);
-
-    // The main (full markdown) result must succeed — return 502 if it failed
-    if (fullOutcome.status !== 'fulfilled') {
-      const errMsg = fullOutcome.reason?.message || 'Unknown error';
+    let text;
+    try {
+      text = await callAIProvider(provider, apiKey, compactPrompt, 4000);
+    } catch (err) {
       await logEvent({
         teamId: site.team_id,
         type: 'ai',
         level: 'error',
-        message: `AI analysis failed for ${site.name}: ${errMsg}`,
+        message: `AI analysis failed for ${site.name}: ${err.message}`,
         metadata: { siteId: site.id, provider, durationMs: Date.now() - startedAt },
       });
-      return NextResponse.json({ error: 'AI analysis failed', details: errMsg }, { status: 502 });
+      return NextResponse.json({ error: 'AI analysis failed', details: err.message }, { status: 502 });
     }
 
-    const markdown = fullOutcome.value || 'No recommendations generated.';
-
-    // Persist the markdown so the page survives reloads
-    await saveSiteAIAnalysis(site.id, markdown);
-
-    // If the compact call succeeded, upsert its top fixes into the checklist
-    let fixCount = 0;
-    if (compactOutcome.status === 'fulfilled' && compactOutcome.value) {
-      const parsed = parseCompactResponse(compactOutcome.value);
-      if (parsed?.topFixes?.length) {
-        try {
-          await upsertSiteFixes(site.id, parsed.topFixes);
-          fixCount = parsed.topFixes.length;
-        } catch (err) {
-          console.error('upsertSiteFixes failed in /api/ai:', err.message);
-        }
-      }
+    const parsed = parseCompactResponse(text);
+    if (!parsed?.topFixes?.length) {
+      await logEvent({
+        teamId: site.team_id,
+        type: 'ai',
+        level: 'warn',
+        message: `AI returned no parseable fixes for ${site.name}`,
+        metadata: { siteId: site.id, provider, preview: text?.slice(0, 200) },
+      });
+      return NextResponse.json(
+        { error: 'AI did not return a usable analysis. Try again.' },
+        { status: 502 }
+      );
     }
+
+    const isWPRocket = Array.isArray(site.tags) && site.tags.includes('wp-rocket');
+    const markdown = renderCompactAsMarkdown(parsed, { isWPRocket });
+
+    // Save markdown + upsert fixes from the SAME parsed data
+    await Promise.all([
+      saveSiteAIAnalysis(site.id, markdown),
+      upsertSiteFixes(site.id, parsed.topFixes).catch((err) => {
+        console.error('upsertSiteFixes failed in /api/ai:', err.message);
+      }),
+    ]);
 
     await logEvent({
       teamId: site.team_id,
       type: 'ai',
       level: 'info',
-      message: `AI analysis generated for ${site.name}${fixCount ? ` (+${fixCount} fix tasks)` : ''}`,
+      message: `AI analysis generated for ${site.name} (${parsed.topFixes.length} fixes)`,
       metadata: {
         siteId: site.id,
         provider,
         durationMs: Date.now() - startedAt,
-        chars: markdown.length,
-        fixCount,
-        compactOk: compactOutcome.status === 'fulfilled',
+        fixCount: parsed.topFixes.length,
       },
     });
 
     return NextResponse.json({
       recommendations: markdown,
       generatedAt: new Date().toISOString(),
-      fixCount,
+      fixCount: parsed.topFixes.length,
     });
   } catch (error) {
     console.error('AI analysis error:', error);

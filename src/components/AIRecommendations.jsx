@@ -206,10 +206,8 @@ export default function AIRecommendations({
               )}
             </div>
           )}
-          <p className="text-[10px] text-gray-600 mt-3 leading-relaxed">
-            <strong className="text-gray-500">Why different counts?</strong> The recommendations above contain the top
-            prioritised write-up with full details, while this checklist tracks every actionable issue from the latest
-            scan so you can tick them off one by one. Numbers don&apos;t always match — the checklist usually has more.
+          <p className="text-[10px] text-gray-600 mt-3">
+            One row per numbered item above. Tick each off as you apply the fix.
           </p>
         </div>
       )}
