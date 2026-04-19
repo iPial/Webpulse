@@ -206,8 +206,10 @@ export default function AIRecommendations({
               )}
             </div>
           )}
-          <p className="text-[10px] text-gray-600 mt-3">
-            Tip: the full fix details are in the recommendations above. Use this checklist to mark each issue done.
+          <p className="text-[10px] text-gray-600 mt-3 leading-relaxed">
+            <strong className="text-gray-500">Why different counts?</strong> The recommendations above contain the top
+            prioritised write-up with full details, while this checklist tracks every actionable issue from the latest
+            scan so you can tick them off one by one. Numbers don&apos;t always match — the checklist usually has more.
           </p>
         </div>
       )}

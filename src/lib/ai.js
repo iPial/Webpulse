@@ -149,7 +149,8 @@ function buildWPRocketPrompt(site, mobile, desktop) {
   parts.push(`Only reference real WP Rocket tabs: Dashboard, Cache, File Optimization, Media, Preload, Advanced Rules, Database, CDN, Heartbeat, Add-ons, Image Optimization.`);
   parts.push(`If an issue cannot be fixed with WP Rocket, say so plainly and suggest the correct tool.`);
   parts.push(`Do not invent WP Rocket features. Prioritise by expected score gain and Core Web Vitals.`);
-  parts.push(`Cover at most 8 issues. Keep each entry under 120 words.`);
+  parts.push(`Number each issue heading in priority order — use "### 1. [Issue title]", "### 2. [Issue title]", etc.`);
+  parts.push(`Cover every critical issue and the top improvement opportunities (up to 20 total). Keep each entry under 120 words.`);
   parts.push('');
   parts.push('---');
   if (mobile) {
@@ -176,14 +177,15 @@ function buildGenericPrompt(site, mobile, desktop) {
   }
   if (desktop) parts.push('', ...buildScoreBlock('Desktop', desktop));
   parts.push('');
+  parts.push('Number each issue heading in priority order — "### 1. [Issue title]", "### 2. [Issue title]", etc.');
   parts.push('For each issue provide:');
   parts.push('');
-  parts.push('### [Issue title]');
+  parts.push('### N. [Issue title]');
   parts.push('- **Impact**: [High / Medium / Low] · Expected gain: ~+N points');
   parts.push('- **Action**: [specific, concrete steps to fix it]');
   parts.push('- **Caveats**: [things to watch out for]');
   parts.push('');
-  parts.push('Cover at most 8 issues. Start directly with the first heading — no preamble.');
+  parts.push('Cover every critical issue and the top improvement opportunities (up to 20 total). Start directly with the first heading — no preamble.');
   return parts.join('\n');
 }
 
