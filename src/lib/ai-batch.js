@@ -42,7 +42,9 @@ async function analyzeOneSite(teamId, provider, apiKey, siteId, site, mobile, pe
   const startedAt = Date.now();
   try {
     const prompt = buildCompactPrompt(site, mobile);
-    const text = await callAIProvider(provider, apiKey, prompt, 3500);
+    // Per-site cap: 40s. With parallel sites this still fits inside the
+    // function's max duration; a stuck provider call can't stall the batch.
+    const text = await callAIProvider(provider, apiKey, prompt, 2500, { timeoutMs: 40000 });
     const parsed = parseCompactResponse(text);
     if (!parsed) {
       await logEvent({

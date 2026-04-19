@@ -42,14 +42,16 @@ export async function POST(request) {
       if (error) throw error;
 
       const now = new Date();
-      const fiveMinutesAgoMs = now.getTime() - 5 * 60 * 1000;
+      // 2-minute window: Vercel kills functions at 60s, so anything still
+      // "running" after 2 minutes is definitely dead.
+      const reclaimCutoffMs = now.getTime() - 2 * 60 * 1000;
 
-      // Reclaim stuck-in-running schedules first (function probably timed out last time)
+      // Reclaim stuck-in-running schedules first
       const stuck = (data || []).filter((s) => {
         const cfg = s.config || {};
         if (cfg.status !== 'running') return false;
-        if (!cfg.runStartedAt) return true; // no timestamp → treat as stuck
-        return new Date(cfg.runStartedAt).getTime() < fiveMinutesAgoMs;
+        if (!cfg.runStartedAt) return true;
+        return new Date(cfg.runStartedAt).getTime() < reclaimCutoffMs;
       });
 
       for (const s of stuck) {
@@ -85,9 +87,14 @@ export async function POST(request) {
       return NextResponse.json({ message: 'No schedules to run', count: 0 });
     }
 
-    const results = [];
+    // Process only ONE schedule per invocation so each has the full 60s
+    // function budget. The poller/cron picks up the next pending one on
+    // its next tick (~60s later).
+    const pickOne = scheduleId ? schedules : schedules.slice(0, 1);
+    const leftover = schedules.length - pickOne.length;
 
-    for (const schedule of schedules) {
+    const results = [];
+    for (const schedule of pickOne) {
       const outcome = await runScheduleInline(supabase, schedule);
       results.push(outcome);
 
@@ -101,6 +108,7 @@ export async function POST(request) {
     return NextResponse.json({
       message: `Processed ${results.length} schedule(s)`,
       results,
+      deferred: leftover,
     });
   } catch (error) {
     console.error('Schedule run error:', error);
@@ -209,10 +217,29 @@ async function runScheduleInline(supabase, schedule) {
     // Detect regressions
     const regressions = await detectAllRegressions(supabase, siteResults);
 
-    // Optionally run AI for each site — runCompactAIForSites persists fixes too
+    // Optionally run AI — but only if we have budget left. Vercel's 60s
+    // function limit means a long scan can leave too little time for AI +
+    // notifications. We reserve 20s for notifications and only run AI if
+    // we still have at least 25s beyond that.
     let aiSummariesBySiteId = null;
+    let aiSkipped = false;
     if (cfg.notifyAI) {
-      aiSummariesBySiteId = await runCompactAIForSites(teamId, siteResults);
+      const elapsed = Date.now() - startedAt;
+      // Function budget ~55s; leave 20s for notify+DB writes → AI must
+      // start with at least 25s of actual runtime left.
+      const budgetRemaining = 55000 - elapsed;
+      if (budgetRemaining < 25000) {
+        aiSkipped = true;
+        await logEvent({
+          teamId,
+          type: 'ai',
+          level: 'warn',
+          message: `Schedule #${scheduleId}: skipped AI — only ${budgetRemaining}ms of function budget left (need 25s). Scan took too long this run.`,
+          metadata: { scheduleId, elapsedMs: elapsed, budgetRemaining },
+        });
+      } else {
+        aiSummariesBySiteId = await runCompactAIForSites(teamId, siteResults);
+      }
     }
 
     // Send notifications
@@ -242,12 +269,13 @@ async function runScheduleInline(supabase, schedule) {
       teamId,
       type: 'schedule',
       level: 'info',
-      message: `Schedule #${scheduleId} completed (${succeeded} ok, ${failed} failed)`,
+      message: `Schedule #${scheduleId} completed (${succeeded} ok, ${failed} failed${aiSkipped ? ', AI skipped: out of budget' : ''})`,
       metadata: {
         scheduleId,
         sitesScanned: succeeded,
         scanFailures: failed,
         notifications,
+        aiSkipped,
         durationMs: Date.now() - startedAt,
       },
     });

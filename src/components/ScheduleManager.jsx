@@ -373,7 +373,7 @@ function ScheduleRow({ schedule, onDelete, onRunNow, onReset }) {
   const status = config.status || 'pending';
   const statusStyle = STATUS_STYLES[status] || STATUS_STYLES.pending;
   const isStuck = status === 'running' && config.runStartedAt &&
-    (Date.now() - new Date(config.runStartedAt).getTime()) > 5 * 60 * 1000;
+    (Date.now() - new Date(config.runStartedAt).getTime()) > 2 * 60 * 1000;
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-700 bg-gray-800/50 px-4 py-3">

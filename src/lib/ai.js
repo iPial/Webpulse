@@ -34,7 +34,21 @@ export async function resolveAIConfig(teamId) {
 
 // ---------- Provider calls ----------
 
-export async function callAnthropic(apiKey, prompt, maxTokens = 2500) {
+// Default per-call timeout. Protects the serverless function from one slow
+// provider call stalling the whole batch.
+const DEFAULT_AI_TIMEOUT_MS = 45000;
+
+function timeoutSignal(ms = DEFAULT_AI_TIMEOUT_MS) {
+  // AbortSignal.timeout is available in Node 18+ / modern runtimes.
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(new Error(`AI call timed out after ${ms}ms`)), ms);
+  return ctrl.signal;
+}
+
+export async function callAnthropic(apiKey, prompt, maxTokens = 2500, { timeoutMs } = {}) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -47,6 +61,7 @@ export async function callAnthropic(apiKey, prompt, maxTokens = 2500) {
       max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
+    signal: timeoutSignal(timeoutMs),
   });
   if (!response.ok) {
     const errBody = await response.text();
@@ -56,7 +71,7 @@ export async function callAnthropic(apiKey, prompt, maxTokens = 2500) {
   return data.content?.[0]?.text || '';
 }
 
-export async function callOpenAI(apiKey, prompt, maxTokens = 2500) {
+export async function callOpenAI(apiKey, prompt, maxTokens = 2500, { timeoutMs } = {}) {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -68,6 +83,7 @@ export async function callOpenAI(apiKey, prompt, maxTokens = 2500) {
       max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
+    signal: timeoutSignal(timeoutMs),
   });
   if (!response.ok) {
     const errBody = await response.text();
@@ -77,13 +93,14 @@ export async function callOpenAI(apiKey, prompt, maxTokens = 2500) {
   return data.choices?.[0]?.message?.content || '';
 }
 
-export async function callGemini(apiKey, prompt) {
+export async function callGemini(apiKey, prompt, { timeoutMs } = {}) {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      signal: timeoutSignal(timeoutMs),
     }
   );
   if (!response.ok) {
@@ -94,10 +111,10 @@ export async function callGemini(apiKey, prompt) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-export async function callAIProvider(provider, apiKey, prompt, maxTokens = 2500) {
-  if (provider === 'openai') return callOpenAI(apiKey, prompt, maxTokens);
-  if (provider === 'gemini') return callGemini(apiKey, prompt);
-  return callAnthropic(apiKey, prompt, maxTokens);
+export async function callAIProvider(provider, apiKey, prompt, maxTokens = 2500, opts = {}) {
+  if (provider === 'openai') return callOpenAI(apiKey, prompt, maxTokens, opts);
+  if (provider === 'gemini') return callGemini(apiKey, prompt, opts);
+  return callAnthropic(apiKey, prompt, maxTokens, opts);
 }
 
 // ---------- Prompts ----------
