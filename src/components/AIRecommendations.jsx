@@ -2,15 +2,20 @@
 
 import { useState } from 'react';
 
-export default function AIRecommendations({ siteId, isWPRocket = false }) {
-  const [recommendations, setRecommendations] = useState(null);
+export default function AIRecommendations({
+  siteId,
+  isWPRocket = false,
+  initialMarkdown = null,
+  initialGeneratedAt = null,
+}) {
+  const [recommendations, setRecommendations] = useState(initialMarkdown);
+  const [generatedAt, setGeneratedAt] = useState(initialGeneratedAt);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function handleAnalyze() {
     setLoading(true);
     setError('');
-    setRecommendations(null);
 
     try {
       const res = await fetch('/api/ai', {
@@ -26,6 +31,12 @@ export default function AIRecommendations({ siteId, isWPRocket = false }) {
 
       const data = await res.json();
       setRecommendations(data.recommendations);
+      setGeneratedAt(data.generatedAt || new Date().toISOString());
+
+      // Tell FixChecklist (and anyone else) to refresh
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('webpulse:fixes-updated', { detail: { siteId } }));
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -46,6 +57,11 @@ export default function AIRecommendations({ siteId, isWPRocket = false }) {
           {isWPRocket && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
               🚀 WP Rocket tuned
+            </span>
+          )}
+          {generatedAt && (
+            <span className="text-[10px] text-gray-500" title={new Date(generatedAt).toLocaleString()}>
+              Generated {formatAgo(generatedAt)}
             </span>
           )}
         </div>
@@ -86,6 +102,18 @@ export default function AIRecommendations({ siteId, isWPRocket = false }) {
       )}
     </div>
   );
+}
+
+function formatAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 // Minimal markdown renderer for headings (#, ##, ###), bold (**…**),

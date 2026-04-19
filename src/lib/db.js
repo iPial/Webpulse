@@ -542,3 +542,14 @@ export async function upsertSiteFixes(siteId, fixes = []) {
     await supabase.from('site_fixes').update(u.patch).eq('id', u.id);
   }
 }
+
+// Save the latest full AI analysis markdown for a site (service role).
+export async function saveSiteAIAnalysis(siteId, markdown) {
+  if (!siteId || !markdown) return;
+  const supabase = createServiceSupabase();
+  const { error } = await supabase
+    .from('sites')
+    .update({ ai_markdown: markdown, ai_generated_at: new Date().toISOString() })
+    .eq('id', siteId);
+  if (error) console.error('saveSiteAIAnalysis failed:', error.message);
+}

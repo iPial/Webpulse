@@ -78,7 +78,12 @@ export default async function SiteDetailPage({ params }) {
       <div className="mt-6 space-y-6">
         <SiteProgress results={results} />
         <StrategyTabs mobile={mobile} desktop={desktop} />
-        <AIRecommendations siteId={site.id} isWPRocket={site.tags?.includes('wp-rocket')} />
+        <AIRecommendations
+          siteId={site.id}
+          isWPRocket={site.tags?.includes('wp-rocket')}
+          initialMarkdown={site.ai_markdown || null}
+          initialGeneratedAt={site.ai_generated_at || null}
+        />
         <FixChecklist siteId={site.id} />
         <ScanHistoryTable results={results} />
       </div>

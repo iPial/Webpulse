@@ -1,12 +1,19 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getSiteById, getSiteResults } from '@/lib/db';
-import { resolveAIConfig, callAIProvider, buildFullPrompt } from '@/lib/ai';
+import { getSiteById, getSiteResults, saveSiteAIAnalysis, upsertSiteFixes } from '@/lib/db';
+import {
+  resolveAIConfig,
+  callAIProvider,
+  buildFullPrompt,
+  buildCompactPrompt,
+  parseCompactResponse,
+} from '@/lib/ai';
 import { logEvent } from '@/lib/logs';
 
 // POST /api/ai
 // Body: { siteId }
-// Returns AI-generated recommendations based on latest scan results.
+// Returns AI-generated recommendations AND populates the fix checklist.
+// Both runs happen in parallel so the extra call adds no latency in practice.
 export async function POST(request) {
   try {
     const cookieStore = await cookies();
@@ -38,35 +45,70 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No scan results available for analysis' }, { status: 404 });
     }
 
-    const prompt = buildFullPrompt(site, mobile, desktop);
+    const fullPrompt = buildFullPrompt(site, mobile, desktop);
+    const compactPrompt = mobile ? buildCompactPrompt(site, mobile) : null;
     const startedAt = Date.now();
 
-    let text;
-    try {
-      text = await callAIProvider(provider, apiKey, prompt, 2500);
-    } catch (err) {
+    // Run full markdown + compact JSON in parallel
+    const [fullOutcome, compactOutcome] = await Promise.allSettled([
+      callAIProvider(provider, apiKey, fullPrompt, 2500),
+      compactPrompt
+        ? callAIProvider(provider, apiKey, compactPrompt, 800)
+        : Promise.resolve(null),
+    ]);
+
+    // The main (full markdown) result must succeed — return 502 if it failed
+    if (fullOutcome.status !== 'fulfilled') {
+      const errMsg = fullOutcome.reason?.message || 'Unknown error';
       await logEvent({
         teamId: site.team_id,
         type: 'ai',
         level: 'error',
-        message: `AI analysis failed for ${site.name}: ${err.message}`,
+        message: `AI analysis failed for ${site.name}: ${errMsg}`,
         metadata: { siteId: site.id, provider, durationMs: Date.now() - startedAt },
       });
-      return NextResponse.json(
-        { error: 'AI analysis failed', details: err.message },
-        { status: 502 }
-      );
+      return NextResponse.json({ error: 'AI analysis failed', details: errMsg }, { status: 502 });
+    }
+
+    const markdown = fullOutcome.value || 'No recommendations generated.';
+
+    // Persist the markdown so the page survives reloads
+    await saveSiteAIAnalysis(site.id, markdown);
+
+    // If the compact call succeeded, upsert its top fixes into the checklist
+    let fixCount = 0;
+    if (compactOutcome.status === 'fulfilled' && compactOutcome.value) {
+      const parsed = parseCompactResponse(compactOutcome.value);
+      if (parsed?.topFixes?.length) {
+        try {
+          await upsertSiteFixes(site.id, parsed.topFixes);
+          fixCount = parsed.topFixes.length;
+        } catch (err) {
+          console.error('upsertSiteFixes failed in /api/ai:', err.message);
+        }
+      }
     }
 
     await logEvent({
       teamId: site.team_id,
       type: 'ai',
       level: 'info',
-      message: `AI analysis generated for ${site.name}`,
-      metadata: { siteId: site.id, provider, durationMs: Date.now() - startedAt, chars: text.length },
+      message: `AI analysis generated for ${site.name}${fixCount ? ` (+${fixCount} fix tasks)` : ''}`,
+      metadata: {
+        siteId: site.id,
+        provider,
+        durationMs: Date.now() - startedAt,
+        chars: markdown.length,
+        fixCount,
+        compactOk: compactOutcome.status === 'fulfilled',
+      },
     });
 
-    return NextResponse.json({ recommendations: text || 'No recommendations generated.' });
+    return NextResponse.json({
+      recommendations: markdown,
+      generatedAt: new Date().toISOString(),
+      fixCount,
+    });
   } catch (error) {
     console.error('AI analysis error:', error);
     return NextResponse.json(

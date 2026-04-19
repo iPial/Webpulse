@@ -26,6 +26,17 @@ export default function FixChecklist({ siteId }) {
     load();
   }, [load]);
 
+  // Re-fetch whenever /api/ai populates new fixes for this site
+  useEffect(() => {
+    function onFixesUpdated(e) {
+      if (!e.detail?.siteId || Number(e.detail.siteId) === Number(siteId)) {
+        load();
+      }
+    }
+    window.addEventListener('webpulse:fixes-updated', onFixesUpdated);
+    return () => window.removeEventListener('webpulse:fixes-updated', onFixesUpdated);
+  }, [siteId, load]);
+
   async function setStatus(id, status) {
     // Optimistic update
     setFixes((prev) =>
