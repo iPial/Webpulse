@@ -38,6 +38,7 @@ export async function POST(request) {
     const diagnostic = {
       qstashToken,
       qstashSigning,
+      qstashUrl: process.env.QSTASH_URL || '(default: https://qstash.upstash.io)',
       baseUrl,
       baseUrlSource,
       testFire: { attempted: false, ok: false },
@@ -71,7 +72,9 @@ export async function POST(request) {
     // Attempt real QStash publish with 10s delay
     try {
       const { Client } = await import('@upstash/qstash');
-      const client = new Client({ token: process.env.QSTASH_TOKEN });
+      const clientConfig = { token: process.env.QSTASH_TOKEN };
+      if (process.env.QSTASH_URL) clientConfig.baseUrl = process.env.QSTASH_URL;
+      const client = new Client(clientConfig);
       const res = await client.publishJSON({
         url: `${baseUrl}/api/logs/ping`,
         body: { teamId: team.id, diagnostic: true, enqueuedAt: new Date().toISOString() },

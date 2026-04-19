@@ -147,6 +147,7 @@ export default function LogViewer() {
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
             <Row label="QStash token set" ok={diagResult.qstashToken} />
             <Row label="QStash signing keys" ok={diagResult.qstashSigning} />
+            <Row label="QStash URL" value={diagResult.qstashUrl || '—'} />
             <Row label={`Base URL (${diagResult.baseUrlSource || 'unknown'})`} value={diagResult.baseUrl || '—'} />
             <Row
               label="Test fire"

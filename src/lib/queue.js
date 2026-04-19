@@ -6,7 +6,14 @@ function getClient() {
   if (!qstashClient) {
     const token = process.env.QSTASH_TOKEN;
     if (!token) throw new Error('QSTASH_TOKEN is not set');
-    qstashClient = new Client({ token });
+
+    // Pass baseUrl explicitly so EU / regional QStash accounts work.
+    // SDK falls back to https://qstash.upstash.io (US) if omitted.
+    const config = { token };
+    if (process.env.QSTASH_URL) {
+      config.baseUrl = process.env.QSTASH_URL;
+    }
+    qstashClient = new Client(config);
   }
   return qstashClient;
 }
