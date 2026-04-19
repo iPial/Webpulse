@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabase } from '@/lib/supabase';
 import { runPageSpeedAudit, formatAuditSummary, detectRegression } from '@/lib/pagespeed';
-import { saveScanResult, upsertMonthlySnapshot, getTeamIntegrations } from '@/lib/db';
+import { saveScanResult, upsertMonthlySnapshot, getTeamIntegrations, upsertSiteFixes } from '@/lib/db';
 import { sendSlackMessage, buildDailySummary } from '@/lib/slack';
 import { sendReportEmail, buildReportHTML } from '@/lib/email';
 import { resolveAIConfig, callAIProvider, buildCompactPrompt, parseCompactResponse } from '@/lib/ai';
@@ -198,10 +198,13 @@ async function runScheduleInline(supabase, schedule) {
     const siteResults = new Map();
     for (const scan of successfulScans) {
       if (!siteResults.has(scan.siteId)) {
-        siteResults.set(scan.siteId, { site: scan.site, results: {} });
+        siteResults.set(scan.siteId, { site: scan.site, results: {}, previous: {} });
       }
       siteResults.get(scan.siteId).results[scan.strategy] = scan.row;
     }
+
+    // Fetch previous scan per (site, strategy) to compute deltas
+    await attachPreviousScans(supabase, siteResults);
 
     // Detect regressions
     const regressions = await detectAllRegressions(supabase, siteResults);
@@ -210,6 +213,17 @@ async function runScheduleInline(supabase, schedule) {
     let aiSummariesBySiteId = null;
     if (cfg.notifyAI) {
       aiSummariesBySiteId = await runCompactAIForSites(teamId, siteResults);
+
+      // Persist AI fixes to the tracker table (idempotent, upserts by title)
+      if (aiSummariesBySiteId) {
+        await Promise.allSettled(
+          Object.entries(aiSummariesBySiteId).map(([siteId, ai]) =>
+            upsertSiteFixes(Number(siteId), ai.topFixes || []).catch((err) => {
+              console.error(`upsertSiteFixes failed for site ${siteId}:`, err.message);
+            })
+          )
+        );
+      }
     }
 
     // Send notifications
@@ -362,6 +376,37 @@ async function scanSiteStrategy(site, strategy, apiKey, teamId) {
     });
     throw err;
   }
+}
+
+// Fetch the immediately preceding scan for each (site, strategy) in the results map.
+// Populates `entry.previous.mobile` / `entry.previous.desktop` in the map.
+async function attachPreviousScans(supabase, siteResults) {
+  const jobs = [];
+  for (const [siteId, entry] of siteResults) {
+    for (const strategy of ['mobile', 'desktop']) {
+      const current = entry.results[strategy];
+      if (!current) continue;
+      jobs.push(
+        supabase
+          .from('scan_results')
+          .select('performance, accessibility, best_practices, seo, scanned_at')
+          .eq('site_id', siteId)
+          .eq('strategy', strategy)
+          .lt('scanned_at', new Date().toISOString())
+          .order('scanned_at', { ascending: false })
+          .range(1, 1)     // skip the newest (this scan) and grab the one before it
+          .maybeSingle()
+          .then(({ data }) => {
+            entry.previous ||= {};
+            entry.previous[strategy] = data || null;
+          })
+          .catch(() => {
+            // Non-fatal — delta will just be null
+          })
+      );
+    }
+  }
+  await Promise.all(jobs);
 }
 
 async function detectAllRegressions(supabase, siteResults) {
@@ -536,8 +581,13 @@ async function sendNotifications(supabase, teamId, siteResults, regressions, { n
       }
 
       const emailSites = [];
-      for (const [, { site, results: siteData }] of siteResults) {
-        emailSites.push({ site, mobile: siteData.mobile || null, desktop: siteData.desktop || null });
+      for (const [, { site, results: siteData, previous = {} }] of siteResults) {
+        emailSites.push({
+          site,
+          mobile: siteData.mobile || null,
+          desktop: siteData.desktop || null,
+          previous: { mobile: previous?.mobile || null, desktop: previous?.desktop || null },
+        });
       }
 
       const recipients = Array.from(recipientSet);

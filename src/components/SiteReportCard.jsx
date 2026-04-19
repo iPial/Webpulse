@@ -11,6 +11,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
+import { resolveLogoUrl } from '@/lib/logos';
 
 export default function SiteReportCard({ site, mobile, desktop, prevMobile, history = [] }) {
   if (!mobile && !desktop) return null;
@@ -35,16 +36,31 @@ export default function SiteReportCard({ site, mobile, desktop, prevMobile, hist
 
       {/* Header */}
       <div className="relative z-20 pointer-events-none px-5 pt-4 pb-3 flex items-start justify-between gap-4 border-b border-gray-800">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-base font-semibold text-white truncate">🌐 {site.name}</h3>
-            {hasWPRocket && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                🚀 WP Rocket
-              </span>
-            )}
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          {(() => {
+            const logo = resolveLogoUrl(site);
+            if (!logo) return null;
+            return (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={logo}
+                alt=""
+                className="w-9 h-9 rounded-lg border border-gray-800 bg-gray-950 object-contain p-1 shrink-0 mt-0.5"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            );
+          })()}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base font-semibold text-white truncate">{site.name}</h3>
+              {hasWPRocket && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  🚀 WP Rocket
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 truncate mt-0.5">{site.url}</p>
           </div>
-          <p className="text-xs text-gray-500 truncate mt-0.5">{site.url}</p>
         </div>
         <span className="pointer-events-auto relative z-30 inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 whitespace-nowrap">
           View Report →

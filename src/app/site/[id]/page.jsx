@@ -6,6 +6,8 @@ import AIRecommendations from '@/components/AIRecommendations';
 import ScanHistoryTable from '@/components/ScanHistoryTable';
 import SiteDetailActions from '@/components/SiteDetailActions';
 import SiteProgress from '@/components/SiteProgress';
+import FixChecklist from '@/components/FixChecklist';
+import { resolveLogoUrl } from '@/lib/logos';
 
 export default async function SiteDetailPage({ params }) {
   const { id } = await params;
@@ -31,7 +33,7 @@ export default async function SiteDetailPage({ params }) {
   if (!mobile && !desktop) {
     return (
       <div>
-        <SiteHeader site={site} />
+        <SiteHeader site={site} logoUrl={resolveLogoUrl(site)} />
         <div className="mt-8 rounded-xl border border-gray-800 bg-gray-900 p-8 text-center">
           <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center mx-auto mb-3">
             <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -51,7 +53,7 @@ export default async function SiteDetailPage({ params }) {
 
   return (
     <div>
-      <SiteHeader site={site} />
+      <SiteHeader site={site} logoUrl={resolveLogoUrl(site)} />
 
       {/* Summary bar */}
       <div className="mt-4 rounded-xl border border-gray-800 bg-gray-900 p-4 flex items-center justify-between">
@@ -77,25 +79,34 @@ export default async function SiteDetailPage({ params }) {
         <SiteProgress results={results} />
         <StrategyTabs mobile={mobile} desktop={desktop} />
         <AIRecommendations siteId={site.id} isWPRocket={site.tags?.includes('wp-rocket')} />
+        <FixChecklist siteId={site.id} />
         <ScanHistoryTable results={results} />
       </div>
     </div>
   );
 }
 
-function SiteHeader({ site }) {
+function SiteHeader({ site, logoUrl }) {
   return (
     <div className="flex items-center gap-4">
       <Link
         href="/"
-        className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-800 text-gray-400 hover:text-white transition-colors"
+        className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-800 text-gray-400 hover:text-white transition-colors shrink-0"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
         </svg>
       </Link>
-      <div>
-        <h1 className="text-2xl font-bold text-white">{site.name}</h1>
+      {logoUrl && (
+        <img
+          src={logoUrl}
+          alt=""
+          className="w-10 h-10 rounded-lg border border-gray-800 bg-gray-900 object-contain p-1 shrink-0"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
+      )}
+      <div className="min-w-0">
+        <h1 className="text-2xl font-bold text-white truncate">{site.name}</h1>
         <a
           href={site.url}
           target="_blank"

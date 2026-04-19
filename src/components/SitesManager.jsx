@@ -2,11 +2,36 @@
 
 import { useState, useEffect } from 'react';
 import SiteForm from './SiteForm';
+import { resolveLogoUrl } from '@/lib/logos';
 
 export default function SitesManager({ teamId, initialSites }) {
   const [sites, setSites] = useState(initialSites);
   const [scanning, setScanning] = useState(null);
   const [scanMessages, setScanMessages] = useState({}); // { siteId: { type, text } }
+  const [editingLogoId, setEditingLogoId] = useState(null);
+  const [logoInput, setLogoInput] = useState('');
+
+  async function handleSaveLogo(site) {
+    try {
+      const res = await fetch(`/api/sites/${site.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logoUrl: logoInput.trim() || null }),
+      });
+      if (!res.ok) return;
+      const { site: updated } = await res.json();
+      setSites((prev) => prev.map((s) => (s.id === site.id ? updated : s)));
+      setEditingLogoId(null);
+      setLogoInput('');
+    } catch {
+      // ignore
+    }
+  }
+
+  function openLogoEditor(site) {
+    setEditingLogoId(site.id);
+    setLogoInput(site.logo_url || '');
+  }
 
   // Auto-clear messages after 10s
   useEffect(() => {
@@ -139,10 +164,51 @@ export default function SitesManager({ teamId, initialSites }) {
             <tbody>
               {sites.map((site) => {
                 const msg = scanMessages[site.id];
+                const logo = resolveLogoUrl(site);
+                const isEditingLogo = editingLogoId === site.id;
                 return (
                   <tr key={site.id} className="border-b border-gray-800/50 last:border-0">
                     <td className="px-5 py-3">
-                      <div className="text-sm text-white font-medium">{site.name}</div>
+                      <div className="flex items-center gap-2.5">
+                        {logo && (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={logo}
+                            alt=""
+                            className="w-7 h-7 rounded border border-gray-800 bg-gray-950 object-contain p-0.5 shrink-0"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-sm text-white font-medium flex items-center gap-2">
+                            {site.name}
+                            <button
+                              onClick={() => (isEditingLogo ? setEditingLogoId(null) : openLogoEditor(site))}
+                              className="text-[10px] text-gray-500 hover:text-blue-400 transition-colors"
+                              title="Edit logo URL"
+                            >
+                              {isEditingLogo ? 'cancel' : (site.logo_url ? 'edit logo' : 'custom logo')}
+                            </button>
+                          </div>
+                          {isEditingLogo && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={logoInput}
+                                onChange={(e) => setLogoInput(e.target.value)}
+                                placeholder="https://… (leave empty to use favicon)"
+                                className="flex-1 min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                              <button
+                                onClick={() => handleSaveLogo(site)}
+                                className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                       {msg && (
                         <div className={`text-xs mt-1 ${
                           msg.type === 'error' ? 'text-red-400' :

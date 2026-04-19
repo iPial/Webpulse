@@ -37,7 +37,7 @@ export async function POST(request) {
     const cookieStore = await cookies();
     const body = await request.json();
 
-    const { teamId, name, url, scanFrequency, tags } = body;
+    const { teamId, name, url, scanFrequency, tags, logoUrl } = body;
 
     if (!teamId || !name || !url) {
       return NextResponse.json(
@@ -71,6 +71,7 @@ export async function POST(request) {
       url,
       scanFrequency,
       tags,
+      logoUrl,
     });
 
     return NextResponse.json({ site }, { status: 201 });

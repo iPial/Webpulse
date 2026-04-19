@@ -1,3 +1,6 @@
+import { resolveLogoUrl } from './logos';
+import { computeDeltas, formatDelta } from './deltas';
+
 const SMTP2GO_API_URL = 'https://api.smtp2go.com/v3/email/send';
 
 // Send a PageSpeed report email via SMTP2GO
@@ -55,11 +58,23 @@ function scorePill(score) {
   return `<span style="display:inline-block; min-width:34px; text-align:center; padding:4px 8px; border-radius:999px; background:${bg}; color:${color}; font-weight:700; font-size:13px;">${score}</span>`;
 }
 
-function scoreLabel(label, score) {
+function deltaPill(delta) {
+  if (delta === null || delta === undefined || delta === 0) {
+    return `<span style="display:block; color:#6B7280; font-size:10px; margin-top:4px;">—</span>`;
+  }
+  const positive = delta > 0;
+  const color = positive ? '#10B981' : '#EF4444';
+  const sign = positive ? '+' : '';
+  const arrow = positive ? '▲' : '▼';
+  return `<span style="display:block; color:${color}; font-size:10px; margin-top:4px; font-weight:600;">${arrow} ${sign}${delta}</span>`;
+}
+
+function scoreLabel(label, score, delta) {
   return `
-    <div style="display:inline-block; margin-right:14px;">
+    <div style="display:inline-block; margin-right:14px; text-align:center; vertical-align:top;">
       <div style="color:#9CA3AF; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">${label}</div>
       ${scorePill(score)}
+      ${deltaPill(delta)}
     </div>
   `;
 }
@@ -129,18 +144,28 @@ function aiFixes(aiSummary) {
   `;
 }
 
-function siteCard({ site, mobile, desktop }, baseUrl, aiSummary) {
+function siteCard({ site, mobile, desktop, previous = {} }, baseUrl, aiSummary) {
   const reportUrl = baseUrl ? `${baseUrl}/site/${site.id}` : null;
-  const primary = mobile || desktop;
+  const logoUrl = resolveLogoUrl(site, 64);
+
+  const mobileDeltas = computeDeltas(mobile, previous?.mobile);
+  const desktopDeltas = computeDeltas(desktop, previous?.desktop);
 
   return `
     <div style="background:#1F2937; border:1px solid #374151; border-radius:12px; padding:20px; margin-bottom:16px;">
-      <div style="display:flex; align-items:start; justify-content:space-between; margin-bottom:16px;">
-        <div>
-          <div style="color:#F9FAFB; font-size:16px; font-weight:700;">${escapeHTML(site.name)}</div>
-          <div style="color:#9CA3AF; font-size:12px; margin-top:2px; word-break:break-all;">${escapeHTML(site.url)}</div>
-        </div>
-      </div>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:16px;">
+        <tr>
+          ${
+            logoUrl
+              ? `<td width="56" valign="top" style="padding-right:12px;"><img src="${logoUrl}" alt="" width="44" height="44" style="display:block; border-radius:8px; background:#111827; border:1px solid #374151; padding:4px; object-fit:contain;" /></td>`
+              : ''
+          }
+          <td valign="top">
+            <div style="color:#F9FAFB; font-size:16px; font-weight:700;">${escapeHTML(site.name)}</div>
+            <div style="color:#9CA3AF; font-size:12px; margin-top:2px; word-break:break-all;">${escapeHTML(site.url)}</div>
+          </td>
+        </tr>
+      </table>
 
       ${
         mobile
@@ -148,10 +173,10 @@ function siteCard({ site, mobile, desktop }, baseUrl, aiSummary) {
         <div style="padding:12px 0; border-top:1px solid #374151;">
           <div style="color:#9CA3AF; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">📱 Mobile</div>
           <div style="margin-bottom:10px;">
-            ${scoreLabel('Perf', mobile.performance)}
-            ${scoreLabel('A11y', mobile.accessibility)}
-            ${scoreLabel('BP', mobile.best_practices)}
-            ${scoreLabel('SEO', mobile.seo)}
+            ${scoreLabel('Perf', mobile.performance, mobileDeltas?.performance)}
+            ${scoreLabel('A11y', mobile.accessibility, mobileDeltas?.accessibility)}
+            ${scoreLabel('BP', mobile.best_practices, mobileDeltas?.bestPractices)}
+            ${scoreLabel('SEO', mobile.seo, mobileDeltas?.seo)}
           </div>
           <div style="margin-top:8px;">
             ${vitalCell('LCP', mobile.lcp)}
@@ -172,10 +197,10 @@ function siteCard({ site, mobile, desktop }, baseUrl, aiSummary) {
         <div style="padding:12px 0; border-top:1px solid #374151;">
           <div style="color:#9CA3AF; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">🖥️ Desktop</div>
           <div style="margin-bottom:10px;">
-            ${scoreLabel('Perf', desktop.performance)}
-            ${scoreLabel('A11y', desktop.accessibility)}
-            ${scoreLabel('BP', desktop.best_practices)}
-            ${scoreLabel('SEO', desktop.seo)}
+            ${scoreLabel('Perf', desktop.performance, desktopDeltas?.performance)}
+            ${scoreLabel('A11y', desktop.accessibility, desktopDeltas?.accessibility)}
+            ${scoreLabel('BP', desktop.best_practices, desktopDeltas?.bestPractices)}
+            ${scoreLabel('SEO', desktop.seo, desktopDeltas?.seo)}
           </div>
           <div>
             ${vitalCell('LCP', desktop.lcp)}

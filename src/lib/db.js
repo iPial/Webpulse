@@ -119,7 +119,7 @@ export async function getSiteById(cookieStore, siteId) {
   return data; // null if not found or RLS denies access
 }
 
-export async function createSite(cookieStore, { teamId, name, url, scanFrequency, tags }) {
+export async function createSite(cookieStore, { teamId, name, url, scanFrequency, tags, logoUrl }) {
   const supabase = createServerSupabase(cookieStore);
   const { data, error } = await supabase
     .from('sites')
@@ -129,6 +129,7 @@ export async function createSite(cookieStore, { teamId, name, url, scanFrequency
       url,
       scan_frequency: scanFrequency || 'daily',
       tags: tags || [],
+      logo_url: logoUrl || null,
     })
     .select()
     .single();
@@ -146,6 +147,7 @@ export async function updateSite(cookieStore, siteId, updates) {
   if (updates.enabled !== undefined) allowed.enabled = updates.enabled;
   if (updates.scanFrequency !== undefined) allowed.scan_frequency = updates.scanFrequency;
   if (updates.tags !== undefined) allowed.tags = updates.tags;
+  if (updates.logoUrl !== undefined) allowed.logo_url = updates.logoUrl || null;
 
   if (Object.keys(allowed).length === 0) throw new Error('No valid fields to update');
 
@@ -458,4 +460,85 @@ export async function getTeamIntegrations(teamId) {
 
   if (error) throw error;
   return data;
+}
+
+// ============================================
+// Site Fixes (AI-suggested tasks the user can check off)
+// ============================================
+
+export async function getSiteFixes(cookieStore, siteId) {
+  const supabase = createServerSupabase(cookieStore);
+  const { data, error } = await supabase
+    .from('site_fixes')
+    .select('*')
+    .eq('site_id', siteId)
+    .order('status', { ascending: true })   // 'fixed' sorts before 'pending' alphabetically
+    .order('last_seen_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+// Service role — called from the scheduler / /api/ai after AI produces top fixes.
+// Merges AI output with existing rows:
+//   - new (siteId,title): insert pending
+//   - existing pending: update action + last_seen_at
+//   - existing fixed: mark needs_reverify=true (issue reappeared) and bump last_seen_at
+// Rows in DB not present in this batch are left alone (user still owns them).
+export async function upsertSiteFixes(siteId, fixes = []) {
+  if (!Array.isArray(fixes) || fixes.length === 0) return;
+
+  const supabase = createServiceSupabase();
+  const nowIso = new Date().toISOString();
+
+  // Fetch existing rows for these titles
+  const titles = fixes.map((f) => f.title).filter(Boolean);
+  if (titles.length === 0) return;
+
+  const { data: existing } = await supabase
+    .from('site_fixes')
+    .select('id, title, status, first_seen_at')
+    .eq('site_id', siteId)
+    .in('title', titles);
+
+  const existingByTitle = new Map((existing || []).map((r) => [r.title, r]));
+
+  const toInsert = [];
+  const toUpdate = [];
+
+  for (const fix of fixes) {
+    if (!fix?.title) continue;
+    const prior = existingByTitle.get(fix.title);
+    if (!prior) {
+      toInsert.push({
+        site_id: siteId,
+        title: fix.title,
+        action: fix.action || null,
+        status: 'pending',
+        last_seen_at: nowIso,
+      });
+    } else if (prior.status === 'fixed') {
+      toUpdate.push({
+        id: prior.id,
+        patch: {
+          action: fix.action || null,
+          last_seen_at: nowIso,
+          needs_reverify: true,
+        },
+      });
+    } else {
+      // still pending — refresh action + timestamp
+      toUpdate.push({
+        id: prior.id,
+        patch: { action: fix.action || null, last_seen_at: nowIso },
+      });
+    }
+  }
+
+  if (toInsert.length > 0) {
+    await supabase.from('site_fixes').insert(toInsert);
+  }
+  for (const u of toUpdate) {
+    await supabase.from('site_fixes').update(u.patch).eq('id', u.id);
+  }
 }

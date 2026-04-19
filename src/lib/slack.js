@@ -1,33 +1,31 @@
 import { getScoreEmoji } from './pagespeed';
+import { resolveLogoUrl } from './logos';
+import { computeDeltas, formatDeltaPlain } from './deltas';
 
 // ============================================
 // Slack Webhook Client
 // ============================================
 
-// Send a message to a Slack webhook URL
 export async function sendSlackMessage(webhookUrl, message) {
   const response = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(message),
   });
-
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(`Slack webhook returned ${response.status}: ${body}`);
   }
 }
 
-// Send using the global SLACK_WEBHOOK_URL env var (fallback for teams without custom webhook)
 export async function sendSlackAlert(text) {
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
-  if (!webhookUrl) return; // Slack not configured — skip silently
-
+  if (!webhookUrl) return;
   await sendSlackMessage(webhookUrl, { text });
 }
 
 // ============================================
-// Message Builders
+// Helpers
 // ============================================
 
 function auditCounts(result) {
@@ -47,16 +45,34 @@ function formatCountsLine(counts) {
   if (counts.improvement > 0) parts.push(`🟡 ${counts.improvement} to improve`);
   if (counts.optional > 0) parts.push(`🟢 ${counts.optional} optional`);
   if (parts.length === 0) return '✅ No issues to fix';
-  return parts.join('   ');
+  return parts.join('  ·  ');
 }
 
-function formatScores(result) {
-  return (
-    `*Perf ${getScoreEmoji(result.performance)} ${result.performance}*  ` +
-    `·  A11y ${result.accessibility}  ` +
-    `·  BP ${result.best_practices}  ` +
-    `·  SEO ${result.seo}`
-  );
+// Renders a single score value with a delta suffix if present.
+function scoreWithDelta(label, value, delta) {
+  const base = `${label} ${value}`;
+  if (delta === null || delta === undefined || delta === 0) return base;
+  const arrow = delta > 0 ? '▲' : '▼';
+  const sign = delta > 0 ? '+' : '';
+  return `${base} ${arrow}${sign}${delta}`;
+}
+
+// Format all four scores for one strategy row, with deltas vs previous scan.
+function formatScoresLine(result, prev) {
+  const deltas = computeDeltas(result, prev);
+  const parts = [
+    `*Perf ${getScoreEmoji(result.performance)} ${result.performance}${deltaSuffix(deltas?.performance)}*`,
+    scoreWithDelta('A11y', result.accessibility, deltas?.accessibility),
+    scoreWithDelta('BP', result.best_practices, deltas?.bestPractices),
+    scoreWithDelta('SEO', result.seo, deltas?.seo),
+  ];
+  return parts.join('  ·  ');
+}
+
+function deltaSuffix(delta) {
+  if (delta === null || delta === undefined || delta === 0) return '';
+  const arrow = delta > 0 ? ' ▲+' : ' ▼';
+  return `${arrow}${delta > 0 ? delta : delta}`;
 }
 
 function formatVitals(result) {
@@ -68,20 +84,35 @@ function formatVitals(result) {
   return parts.length > 0 ? parts.join('  ·  ') : null;
 }
 
-// Build the scan summary for Slack (Block Kit format).
-// Each site gets: name, mobile/desktop scores, issue counts, optional AI top fixes, "View Report" link.
+function countTotalCritical(siteResults) {
+  let total = 0;
+  for (const [, { results }] of siteResults) {
+    const r = results.mobile || results.desktop;
+    if (r?.audits?.critical?.length) total += r.audits.critical.length;
+  }
+  return total;
+}
+
+function escapeSlack(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ============================================
+// Main builder — Block Kit with logos, deltas, AI fixes
+// ============================================
+
 export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
   const blocks = [];
-
-  // Header
   const totalSites = siteResults.size;
   const totalCritical = countTotalCritical(siteResults);
 
+  // 1) Header
   blocks.push({
     type: 'header',
     text: { type: 'plain_text', text: '📊 Webpulse Scan Report', emoji: true },
   });
 
+  // 2) Summary row with "Open Dashboard" button
   const summaryBlock = {
     type: 'section',
     text: {
@@ -94,8 +125,6 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
         (aiSummariesBySiteId ? '  ·  🤖 AI analysis included' : ''),
     },
   };
-
-  // Open Dashboard button on the summary row
   if (baseUrl) {
     summaryBlock.accessory = {
       type: 'button',
@@ -105,13 +134,12 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
       action_id: 'open_dashboard',
     };
   }
-
   blocks.push(summaryBlock);
   blocks.push({ type: 'divider' });
 
-  // Per-site sections
+  // 3) One block per site
   let first = true;
-  for (const [, { site, results }] of siteResults) {
+  for (const [, { site, results, previous = {} }] of siteResults) {
     const mobile = results.mobile;
     const desktop = results.desktop;
     if (!mobile && !desktop) continue;
@@ -119,49 +147,69 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
     if (!first) blocks.push({ type: 'divider' });
     first = false;
 
-    // Title with URL
-    const lines = [`🌐 *<${site.url}|${escapeSlack(site.name)}>*`];
+    const logoUrl = resolveLogoUrl(site, 64);
 
-    if (mobile) {
-      lines.push('');
-      lines.push(`📱 *Mobile*   ${formatScores(mobile)}`);
-      const vitals = formatVitals(mobile);
-      if (vitals) lines.push(`_${vitals}_`);
-      const counts = formatCountsLine(auditCounts(mobile));
-      if (counts) lines.push(counts);
-    }
-
-    if (desktop) {
-      lines.push('');
-      lines.push(`🖥️ *Desktop*   ${formatScores(desktop)}`);
-      const vitals = formatVitals(desktop);
-      if (vitals) lines.push(`_${vitals}_`);
-    }
-
-    const sectionBlock = {
+    // 3a) Site header: logo on the right, name + URL on the left
+    const headerBlock = {
       type: 'section',
-      text: { type: 'mrkdwn', text: lines.join('\n') },
+      text: { type: 'mrkdwn', text: `*<${site.url}|${escapeSlack(site.name)}>*\n${escapeSlack(site.url)}` },
     };
-
-    // "View Report" button — only if baseUrl configured
-    if (baseUrl) {
-      sectionBlock.accessory = {
-        type: 'button',
-        text: { type: 'plain_text', text: 'View Report', emoji: true },
-        url: `${baseUrl}/site/${site.id}`,
-        action_id: `view_${site.id}`,
+    if (logoUrl) {
+      headerBlock.accessory = {
+        type: 'image',
+        image_url: logoUrl,
+        alt_text: `${site.name} logo`,
       };
     }
+    blocks.push(headerBlock);
 
-    blocks.push(sectionBlock);
+    // 3b) Mobile block
+    if (mobile) {
+      const lines = [`📱 *Mobile*   ${formatScoresLine(mobile, previous?.mobile)}`];
+      const vitals = formatVitals(mobile);
+      if (vitals) lines.push(`   _${vitals}_`);
+      const counts = formatCountsLine(auditCounts(mobile));
+      if (counts) lines.push(`   ${counts}`);
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: lines.join('\n') },
+      });
+    }
 
-    // 🤖 AI top fixes for this site, if available
+    // 3c) Desktop block
+    if (desktop) {
+      const lines = [`🖥️ *Desktop*   ${formatScoresLine(desktop, previous?.desktop)}`];
+      const vitals = formatVitals(desktop);
+      if (vitals) lines.push(`   _${vitals}_`);
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: lines.join('\n') },
+      });
+    }
+
+    // 3d) View Report action row
+    if (baseUrl) {
+      blocks.push({
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'View Full Report', emoji: true },
+            url: `${baseUrl}/site/${site.id}`,
+            action_id: `view_${site.id}`,
+          },
+        ],
+      });
+    }
+
+    // 3e) AI top fixes (if provided)
     if (aiSummariesBySiteId && aiSummariesBySiteId[site.id]) {
       const ai = aiSummariesBySiteId[site.id];
       const aiLines = ['🤖 *Top fixes*'];
       if (ai.summary) aiLines.push(`_${escapeSlack(ai.summary)}_`);
       for (const fix of ai.topFixes || []) {
-        aiLines.push(`• *${escapeSlack(fix.title)}* — ${escapeSlack(fix.action)}`);
+        aiLines.push(`• *${escapeSlack(fix.title)}*`);
+        aiLines.push(`   ↳ ${escapeSlack(fix.action)}`);
       }
       blocks.push({
         type: 'section',
@@ -170,7 +218,7 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
     }
   }
 
-  // Regression alerts
+  // 4) Regression alerts
   if (regressions && regressions.length > 0) {
     blocks.push({ type: 'divider' });
     blocks.push({
@@ -193,25 +241,26 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
     });
   }
 
-  // Footer
+  // 5) Footer
   blocks.push({
     type: 'context',
     elements: [
       {
         type: 'mrkdwn',
-        text: `🕒 Scanned ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC` +
+        text:
+          `🕒 Scanned ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC` +
           (baseUrl ? `  ·  <${baseUrl}|Open Dashboard>` : ''),
       },
     ],
   });
 
-  // Slack Block Kit has a 50-block limit — truncate and warn if exceeded
+  // Slack Block Kit has a 50-block limit
   if (blocks.length > 49) {
     const truncated = blocks.slice(0, 48);
     truncated.push({
       type: 'context',
       elements: [
-        { type: 'mrkdwn', text: `_…and ${blocks.length - 48} more items (truncated due to Slack limits)_` },
+        { type: 'mrkdwn', text: `_…and ${blocks.length - 48} more items (truncated)_` },
       ],
     });
     return { blocks: truncated };
@@ -220,21 +269,24 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
   return { blocks };
 }
 
-// Text-only fallback for webhooks that don't support blocks
+// ============================================
+// Text-only fallback
+// ============================================
+
 export function buildDailySummaryText(siteResults, regressions, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
   const lines = ['*📊 Webpulse Scan Report*'];
   if (baseUrl) lines.push(`<${baseUrl}|Open Dashboard>`);
   lines.push('');
 
-  for (const [, { site, results }] of siteResults) {
+  for (const [, { site, results, previous = {} }] of siteResults) {
     const mobile = results.mobile;
     const desktop = results.desktop;
     if (!mobile && !desktop) continue;
 
-    lines.push(`🌐 *<${site.url}|${escapeSlack(site.name)}>*`);
+    lines.push(`*<${site.url}|${escapeSlack(site.name)}>*`);
 
     if (mobile) {
-      lines.push(`   📱 Mobile: ${formatScores(mobile)}`);
+      lines.push(`   📱 Mobile: ${formatScoresLine(mobile, previous?.mobile)}`);
       const v = formatVitals(mobile);
       if (v) lines.push(`      _${v}_`);
       const c = formatCountsLine(auditCounts(mobile));
@@ -242,7 +294,7 @@ export function buildDailySummaryText(siteResults, regressions, { baseUrl = '', 
     }
 
     if (desktop) {
-      lines.push(`   🖥️ Desktop: ${formatScores(desktop)}`);
+      lines.push(`   🖥️ Desktop: ${formatScoresLine(desktop, previous?.desktop)}`);
       const v = formatVitals(desktop);
       if (v) lines.push(`      _${v}_`);
     }
@@ -252,7 +304,8 @@ export function buildDailySummaryText(siteResults, regressions, { baseUrl = '', 
       lines.push(`   🤖 Top fixes:`);
       if (ai.summary) lines.push(`      _${escapeSlack(ai.summary)}_`);
       for (const fix of ai.topFixes || []) {
-        lines.push(`      • *${escapeSlack(fix.title)}* — ${escapeSlack(fix.action)}`);
+        lines.push(`      • *${escapeSlack(fix.title)}*`);
+        lines.push(`         ↳ ${escapeSlack(fix.action)}`);
       }
     }
 
@@ -277,27 +330,13 @@ export function buildDailySummaryText(siteResults, regressions, { baseUrl = '', 
   return { text: lines.join('\n') };
 }
 
-// Build a regression alert for immediate notification
 export function buildRegressionAlert(siteName, regressions) {
   const lines = [`🚨 *Regression Alert: ${escapeSlack(siteName)}*`, ''];
-
   for (const reg of regressions) {
     lines.push(`⬇️ ${reg.category}: *${reg.previous}* → *${reg.current}* (−${reg.drop})`);
   }
-
   return { text: lines.join('\n') };
 }
 
-function countTotalCritical(siteResults) {
-  let total = 0;
-  for (const [, { results }] of siteResults) {
-    const r = results.mobile || results.desktop;
-    if (r?.audits?.critical?.length) total += r.audits.critical.length;
-  }
-  return total;
-}
-
-// Escape special Slack mrkdwn characters in user-provided text
-function escapeSlack(text) {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+// Kept for any old imports
+export { formatDeltaPlain };
