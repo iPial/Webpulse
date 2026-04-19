@@ -60,7 +60,7 @@ export default function ScheduleBanner({ teamId }) {
           </>
         ) : (
           <>
-            Automated scans run <strong>daily at 6:00 AM UTC</strong>. Weekly sites scan on Mondays, monthly on the 1st.
+            No scheduled scans yet. Use <strong>+ New Schedule</strong> below to set a date and time.
           </>
         )}
       </span>

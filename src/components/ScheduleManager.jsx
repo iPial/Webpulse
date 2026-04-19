@@ -151,6 +151,21 @@ export default function ScheduleManager({ teamId }) {
     }
   }
 
+  async function handleReset(scheduleId) {
+    try {
+      const res = await fetch('/api/schedules', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: scheduleId, action: 'reset' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.details || data.error || 'Reset failed');
+      setSchedules((prev) => prev.map((s) => (s.id === scheduleId ? data.schedule : s)));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function handleRunNow(scheduleId) {
     try {
       // Mark optimistically as running in the UI
@@ -344,6 +359,7 @@ export default function ScheduleManager({ teamId }) {
               schedule={schedule}
               onDelete={handleDelete}
               onRunNow={handleRunNow}
+              onReset={handleReset}
             />
           ))}
         </div>
@@ -352,10 +368,12 @@ export default function ScheduleManager({ teamId }) {
   );
 }
 
-function ScheduleRow({ schedule, onDelete, onRunNow }) {
+function ScheduleRow({ schedule, onDelete, onRunNow, onReset }) {
   const config = schedule.config || {};
   const status = config.status || 'pending';
   const statusStyle = STATUS_STYLES[status] || STATUS_STYLES.pending;
+  const isStuck = status === 'running' && config.runStartedAt &&
+    (Date.now() - new Date(config.runStartedAt).getTime()) > 5 * 60 * 1000;
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-700 bg-gray-800/50 px-4 py-3">
@@ -398,6 +416,15 @@ function ScheduleRow({ schedule, onDelete, onRunNow }) {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        {isStuck && (
+          <button
+            onClick={() => onReset(schedule.id)}
+            className="px-3 py-1.5 rounded-lg border border-yellow-500/30 bg-yellow-500/10 text-xs text-yellow-400 hover:bg-yellow-500/20 transition-colors"
+            title="This schedule has been running for over 5 minutes — likely stuck. Reset to pending."
+          >
+            Reset
+          </button>
+        )}
         {(status === 'pending' || status === 'failed' || status === 'completed') && (
           <button
             onClick={() => onRunNow(schedule.id)}

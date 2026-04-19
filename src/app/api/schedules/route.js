@@ -156,6 +156,73 @@ function getBaseUrl(request) {
   return `${protocol}://${host}`;
 }
 
+// PATCH /api/schedules
+// Body: { id, action: 'reset' }
+// Resets a schedule's status back to 'pending' so it can be retried.
+export async function PATCH(request) {
+  try {
+    const cookieStore = await cookies();
+    const supabase = createServerSupabase(cookieStore);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { id, action } = body;
+
+    if (!id || action !== 'reset') {
+      return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    }
+
+    const service = createServiceSupabase();
+    const { data: existing } = await service
+      .from('integrations')
+      .select('*')
+      .eq('id', id)
+      .eq('type', 'schedule')
+      .single();
+
+    if (!existing) {
+      return NextResponse.json({ error: 'Schedule not found' }, { status: 404 });
+    }
+
+    const cfg = existing.config || {};
+    const { data: updated, error: updateError } = await service
+      .from('integrations')
+      .update({
+        config: {
+          ...cfg,
+          status: 'pending',
+          error: null,
+          runStartedAt: null,
+          staleReclaimedAt: null,
+        },
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    await logEvent({
+      teamId: existing.team_id,
+      type: 'schedule',
+      level: 'info',
+      message: `Schedule #${id} reset to pending by ${user.email}`,
+      metadata: { scheduleId: id, resetBy: user.email },
+    });
+
+    return NextResponse.json({ schedule: updated });
+  } catch (error) {
+    console.error('Schedules PATCH error:', error);
+    return NextResponse.json(
+      { error: 'Failed to reset schedule', details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
 // DELETE /api/schedules?id=xxx
 // Delete a schedule by integration id
 export async function DELETE(request) {

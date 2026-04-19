@@ -42,6 +42,39 @@ export async function POST(request) {
       if (error) throw error;
 
       const now = new Date();
+      const fiveMinutesAgoMs = now.getTime() - 5 * 60 * 1000;
+
+      // Reclaim stuck-in-running schedules first (function probably timed out last time)
+      const stuck = (data || []).filter((s) => {
+        const cfg = s.config || {};
+        if (cfg.status !== 'running') return false;
+        if (!cfg.runStartedAt) return true; // no timestamp → treat as stuck
+        return new Date(cfg.runStartedAt).getTime() < fiveMinutesAgoMs;
+      });
+
+      for (const s of stuck) {
+        const cfg = s.config || {};
+        await supabase
+          .from('integrations')
+          .update({
+            config: {
+              ...cfg,
+              status: 'failed',
+              error: 'Function timed out while running. Check the Logs page — scans may have partially succeeded. Click Retry to try again.',
+              staleReclaimedAt: now.toISOString(),
+            },
+          })
+          .eq('id', s.id);
+
+        await logEvent({
+          teamId: s.team_id,
+          type: 'schedule',
+          level: 'error',
+          message: `Reclaimed stuck schedule #${s.id} (running since ${cfg.runStartedAt || 'unknown'})`,
+          metadata: { scheduleId: s.id, runStartedAt: cfg.runStartedAt, reason: 'Function likely timed out' },
+        });
+      }
+
       schedules = (data || []).filter((s) => {
         const cfg = s.config || {};
         return cfg.status === 'pending' && cfg.scheduledAt && new Date(cfg.scheduledAt) <= now;
@@ -87,7 +120,7 @@ async function runScheduleInline(supabase, schedule) {
 
   await supabase
     .from('integrations')
-    .update({ config: { ...cfg, status: 'running' } })
+    .update({ config: { ...cfg, status: 'running', runStartedAt: new Date().toISOString() } })
     .eq('id', scheduleId);
 
   await logEvent({
@@ -369,7 +402,8 @@ async function detectAllRegressions(supabase, siteResults) {
   return regressions;
 }
 
-// Run compact AI analysis for each site that has a mobile result.
+// Run compact AI analysis for each site that has a mobile result — IN PARALLEL.
+// Serial calls across 5+ sites easily cross the 60s Vercel limit.
 // Returns { [siteId]: { summary, topFixes } }. Failures are logged but non-fatal.
 async function runCompactAIForSites(teamId, siteResults) {
   try {
@@ -385,45 +419,21 @@ async function runCompactAIForSites(teamId, siteResults) {
       return null;
     }
 
-    const byId = {};
+    // Build one promise per site, run all concurrently
+    const jobs = [];
     for (const [siteId, { site, results }] of siteResults) {
       const mobile = results.mobile;
       if (!mobile) continue;
-
-      const startedAt = Date.now();
-      try {
-        const prompt = buildCompactPrompt(site, mobile);
-        const text = await callAIProvider(provider, apiKey, prompt, 800);
-        const parsed = parseCompactResponse(text);
-        if (parsed) {
-          byId[siteId] = parsed;
-          await logEvent({
-            teamId,
-            type: 'ai',
-            level: 'info',
-            message: `AI summary generated for ${site.name}`,
-            metadata: { siteId, provider, durationMs: Date.now() - startedAt, fixes: parsed.topFixes.length },
-          });
-        } else {
-          await logEvent({
-            teamId,
-            type: 'ai',
-            level: 'warn',
-            message: `AI returned unparseable response for ${site.name}`,
-            metadata: { siteId, provider, durationMs: Date.now() - startedAt, preview: text.slice(0, 120) },
-          });
-        }
-      } catch (err) {
-        await logEvent({
-          teamId,
-          type: 'ai',
-          level: 'error',
-          message: `AI call failed for ${site.name}: ${err.message}`,
-          metadata: { siteId, provider, error: err.message, durationMs: Date.now() - startedAt },
-        });
-      }
+      jobs.push(analyzeOneSite(teamId, provider, apiKey, siteId, site, mobile));
     }
 
+    const outcomes = await Promise.allSettled(jobs);
+    const byId = {};
+    for (const o of outcomes) {
+      if (o.status === 'fulfilled' && o.value?.parsed) {
+        byId[o.value.siteId] = o.value.parsed;
+      }
+    }
     return byId;
   } catch (err) {
     await logEvent({
@@ -434,6 +444,42 @@ async function runCompactAIForSites(teamId, siteResults) {
       metadata: { error: err.message },
     });
     return null;
+  }
+}
+
+async function analyzeOneSite(teamId, provider, apiKey, siteId, site, mobile) {
+  const startedAt = Date.now();
+  try {
+    const prompt = buildCompactPrompt(site, mobile);
+    const text = await callAIProvider(provider, apiKey, prompt, 800);
+    const parsed = parseCompactResponse(text);
+    if (parsed) {
+      await logEvent({
+        teamId,
+        type: 'ai',
+        level: 'info',
+        message: `AI summary generated for ${site.name}`,
+        metadata: { siteId, provider, durationMs: Date.now() - startedAt, fixes: parsed.topFixes.length },
+      });
+      return { siteId, parsed };
+    }
+    await logEvent({
+      teamId,
+      type: 'ai',
+      level: 'warn',
+      message: `AI returned unparseable response for ${site.name}`,
+      metadata: { siteId, provider, durationMs: Date.now() - startedAt, preview: text.slice(0, 120) },
+    });
+    return { siteId, parsed: null };
+  } catch (err) {
+    await logEvent({
+      teamId,
+      type: 'ai',
+      level: 'error',
+      message: `AI call failed for ${site.name}: ${err.message}`,
+      metadata: { siteId, provider, error: err.message, durationMs: Date.now() - startedAt },
+    });
+    return { siteId, parsed: null };
   }
 }
 
