@@ -480,35 +480,46 @@ export async function getSiteFixes(cookieStore, siteId) {
 }
 
 // Service role — called from the scheduler / /api/ai after AI produces top fixes.
-// Merges AI output with existing rows:
+// Behavior:
 //   - new (siteId,title): insert pending
-//   - existing pending: update action + last_seen_at
-//   - existing fixed: mark needs_reverify=true (issue reappeared) and bump last_seen_at
-// Rows in DB not present in this batch are left alone (user still owns them).
+//   - existing pending: refresh fields + last_seen_at
+//   - existing fixed: mark needs_reverify=true, bump last_seen_at
+//   - pending rows NOT in this batch (stale titles): DELETED so the list
+//     always reflects the latest AI output. Fixed rows are preserved.
+// Resilient to missing migration 005 columns — strips them and retries
+// on "column does not exist" errors so the insert always succeeds.
 export async function upsertSiteFixes(siteId, fixes = []) {
   if (!Array.isArray(fixes) || fixes.length === 0) return;
 
   const supabase = createServiceSupabase();
   const nowIso = new Date().toISOString();
 
-  // Fetch existing rows for these titles
   const titles = fixes.map((f) => f.title).filter(Boolean);
   if (titles.length === 0) return;
 
-  const { data: existing } = await supabase
+  // Fetch ALL existing fixes for this site (not just these titles) so we
+  // can delete stale pending rows from a prior (smaller) analysis.
+  const { data: allExisting } = await supabase
     .from('site_fixes')
-    .select('id, title, status, first_seen_at')
-    .eq('site_id', siteId)
-    .in('title', titles);
+    .select('id, title, status')
+    .eq('site_id', siteId);
 
-  const existingByTitle = new Map((existing || []).map((r) => [r.title, r]));
+  const existingByTitle = new Map((allExisting || []).map((r) => [r.title, r]));
+  const newTitleSet = new Set(titles);
+
+  const stalePendingIds = (allExisting || [])
+    .filter((r) => r.status === 'pending' && !newTitleSet.has(r.title))
+    .map((r) => r.id);
+  if (stalePendingIds.length > 0) {
+    await supabase.from('site_fixes').delete().in('id', stalePendingIds);
+  }
 
   const toInsert = [];
   const toUpdate = [];
 
   for (const fix of fixes) {
     if (!fix?.title) continue;
-    const commonFields = {
+    const fullFields = {
       action: fix.action || null,
       impact: fix.impact || null,
       expected_gain: fix.expectedGain || null,
@@ -523,27 +534,61 @@ export async function upsertSiteFixes(siteId, fixes = []) {
         site_id: siteId,
         title: fix.title,
         status: 'pending',
-        ...commonFields,
+        ...fullFields,
       });
     } else if (prior.status === 'fixed') {
       toUpdate.push({
         id: prior.id,
-        patch: { ...commonFields, needs_reverify: true },
+        patch: { ...fullFields, needs_reverify: true },
       });
     } else {
-      toUpdate.push({
-        id: prior.id,
-        patch: commonFields,
-      });
+      toUpdate.push({ id: prior.id, patch: fullFields });
     }
   }
 
   if (toInsert.length > 0) {
-    await supabase.from('site_fixes').insert(toInsert);
+    await insertFixesResilient(supabase, toInsert);
   }
   for (const u of toUpdate) {
-    await supabase.from('site_fixes').update(u.patch).eq('id', u.id);
+    await updateFixResilient(supabase, u.id, u.patch);
   }
+}
+
+// Retry helpers for environments where migration 005 hasn't been applied.
+async function insertFixesResilient(supabase, rows) {
+  const { error } = await supabase.from('site_fixes').insert(rows);
+  if (!error) return;
+  if (isMissingColumnError(error)) {
+    const stripped = rows.map(stripExtendedFixFields);
+    const { error: e2 } = await supabase.from('site_fixes').insert(stripped);
+    if (e2) console.error('site_fixes insert (fallback) failed:', e2.message);
+  } else {
+    console.error('site_fixes insert failed:', error.message);
+  }
+}
+
+async function updateFixResilient(supabase, id, patch) {
+  const { error } = await supabase.from('site_fixes').update(patch).eq('id', id);
+  if (!error) return;
+  if (isMissingColumnError(error)) {
+    const { error: e2 } = await supabase
+      .from('site_fixes')
+      .update(stripExtendedFixFields(patch))
+      .eq('id', id);
+    if (e2) console.error('site_fixes update (fallback) failed:', e2.message);
+  } else {
+    console.error('site_fixes update failed:', error.message);
+  }
+}
+
+function isMissingColumnError(err) {
+  const msg = (err?.message || '').toLowerCase();
+  return msg.includes('column') && (msg.includes('does not exist') || msg.includes('could not find'));
+}
+
+function stripExtendedFixFields(row) {
+  const { impact: _i, expected_gain: _g, rocket_path: _r, caveats: _c, ...rest } = row;
+  return rest;
 }
 
 // Save the latest full AI analysis markdown for a site (service role).

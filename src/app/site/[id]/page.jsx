@@ -80,6 +80,7 @@ export default async function SiteDetailPage({ params }) {
         <AIRecommendations
           siteId={site.id}
           isWPRocket={site.tags?.includes('wp-rocket')}
+          initialMarkdown={site.ai_markdown || null}
           initialGeneratedAt={site.ai_generated_at || null}
         />
         <ScanHistoryTable results={results} />

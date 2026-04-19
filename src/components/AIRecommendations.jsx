@@ -2,53 +2,50 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-// Unified AI Recommendations + Fix Tasks card.
-// - GET /api/fixes returns rich per-issue rows (title, action, impact,
-//   expected_gain, rocket_path, caveats, status, needs_reverify, ...).
-// - PATCH /api/fixes toggles status between 'pending' and 'fixed'.
-// - Re-analyze triggers POST /api/ai which re-runs both the markdown and
-//   the compact JSON prompt — the latter upserts rows into site_fixes.
-//   We listen for webpulse:fixes-updated to re-fetch after Analyze.
+// AI Recommendations card — shows the full rich markdown analysis from the
+// last Analyze run PLUS a compact checkable fix-task list below it.
+// - site.ai_markdown holds the full per-issue detail (Impact / WP Rocket
+//   path / Action / Caveats) that the user wants back.
+// - site_fixes rows are used only for the check-off state tracker below.
 export default function AIRecommendations({
   siteId,
   isWPRocket = false,
+  initialMarkdown = null,
   initialGeneratedAt = null,
 }) {
-  const [fixes, setFixes] = useState([]);
+  const [markdown, setMarkdown] = useState(initialMarkdown);
   const [generatedAt, setGeneratedAt] = useState(initialGeneratedAt);
-  const [loading, setLoading] = useState(true);
+  const [fixes, setFixes] = useState([]);
+  const [loadingFixes, setLoadingFixes] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
   const [showFixed, setShowFixed] = useState(false);
 
-  const load = useCallback(async () => {
+  const loadFixes = useCallback(async () => {
     try {
-      setLoading(true);
+      setLoadingFixes(true);
       const res = await fetch(`/api/fixes?siteId=${siteId}`);
-      if (!res.ok) throw new Error('Failed to load fixes');
+      if (!res.ok) return;
       const data = await res.json();
       setFixes(data.fixes || []);
-    } catch (err) {
-      setError(err.message);
     } finally {
-      setLoading(false);
+      setLoadingFixes(false);
     }
   }, [siteId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadFixes();
+  }, [loadFixes]);
 
-  // Refresh when /api/ai or a scheduled scan populates new fixes
   useEffect(() => {
     function onUpdated(e) {
       if (!e.detail?.siteId || Number(e.detail.siteId) === Number(siteId)) {
-        load();
+        loadFixes();
       }
     }
     window.addEventListener('webpulse:fixes-updated', onUpdated);
     return () => window.removeEventListener('webpulse:fixes-updated', onUpdated);
-  }, [siteId, load]);
+  }, [siteId, loadFixes]);
 
   async function handleAnalyze() {
     setAnalyzing(true);
@@ -61,8 +58,10 @@ export default function AIRecommendations({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.details || data.error || 'Analyze failed');
+
+      if (data.recommendations) setMarkdown(data.recommendations);
       setGeneratedAt(data.generatedAt || new Date().toISOString());
-      await load();
+      await loadFixes();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -71,7 +70,6 @@ export default function AIRecommendations({
   }
 
   async function setStatus(id, status) {
-    // Optimistic update
     setFixes((prev) =>
       prev.map((f) =>
         f.id === id
@@ -84,7 +82,6 @@ export default function AIRecommendations({
           : f
       )
     );
-
     try {
       const res = await fetch('/api/fixes', {
         method: 'PATCH',
@@ -94,14 +91,13 @@ export default function AIRecommendations({
       if (!res.ok) throw new Error('Failed to update');
     } catch (err) {
       setError(err.message);
-      load();
+      loadFixes();
     }
   }
 
   const pending = fixes.filter((f) => f.status === 'pending');
   const needsReverify = fixes.filter((f) => f.status === 'fixed' && f.needs_reverify);
   const fixed = fixes.filter((f) => f.status === 'fixed' && !f.needs_reverify);
-  const hasAny = fixes.length > 0;
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
@@ -113,7 +109,7 @@ export default function AIRecommendations({
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
             </svg>
           </div>
-          <h3 className="text-sm font-semibold text-white">AI Recommendations &amp; Fix Tasks</h3>
+          <h3 className="text-sm font-semibold text-white">AI Recommendations</h3>
           {isWPRocket && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
               🚀 WP Rocket tuned
@@ -126,26 +122,13 @@ export default function AIRecommendations({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {hasAny && (
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400">{pending.length} pending</span>
-              {needsReverify.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">
-                  {needsReverify.length} verify
-                </span>
-              )}
-              <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">{fixed.length} fixed</span>
-            </div>
-          )}
-          <button
-            onClick={handleAnalyze}
-            disabled={analyzing}
-            className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {analyzing ? 'Analyzing…' : hasAny ? 'Re-analyze' : 'Analyze'}
-          </button>
-        </div>
+        <button
+          onClick={handleAnalyze}
+          disabled={analyzing}
+          className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {analyzing ? 'Analyzing…' : markdown ? 'Re-analyze' : 'Analyze'}
+        </button>
       </div>
 
       {error && (
@@ -157,45 +140,75 @@ export default function AIRecommendations({
         </div>
       )}
 
-      {analyzing && (
+      {analyzing && !markdown && (
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
           <div className="w-4 h-4 border-2 border-gray-600 border-t-purple-400 rounded-full animate-spin" />
-          Analyzing scan results and populating fix tasks…
+          Analyzing scan results…
         </div>
       )}
 
-      {loading && !analyzing && !hasAny ? (
-        <p className="text-sm text-gray-500">Loading…</p>
-      ) : !hasAny ? (
+      {/* Rich markdown analysis */}
+      {markdown ? (
+        <div className="text-sm text-gray-300 leading-relaxed">
+          <MarkdownBlock text={markdown} />
+        </div>
+      ) : !analyzing ? (
         <p className="text-sm text-gray-500">
-          Click <strong className="text-gray-300">{analyzing ? 'Analyzing' : 'Analyze'}</strong> to get {isWPRocket ? 'WP Rocket-specific' : 'AI-powered'} recommendations.
-          Each issue becomes a checkable task you can mark as fixed.
+          Click <strong className="text-gray-300">Analyze</strong> to get {isWPRocket ? 'WP Rocket-specific' : 'AI-powered'} recommendations.
+          {!isWPRocket && ' Tag this site as WP Rocket in Settings for more precise fix instructions.'}
         </p>
-      ) : (
-        <div className="space-y-4">
-          {needsReverify.length > 0 && (
-            <FixSection title="Needs re-verify" color="orange" fixes={needsReverify} onSetStatus={setStatus} variant="verify" />
-          )}
-          {pending.length > 0 && (
-            <FixSection title="To do" color="yellow" fixes={pending} onSetStatus={setStatus} />
-          )}
-          {fixed.length > 0 && (
-            <div>
-              <button
-                onClick={() => setShowFixed(!showFixed)}
-                className="text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-300 mb-2 inline-flex items-center gap-1"
-              >
-                Fixed ({fixed.length}) {showFixed ? '▾' : '▸'}
-              </button>
-              {showFixed && (
-                <div className="space-y-2">
-                  {fixed.map((f) => (
-                    <FixCard key={f.id} fix={f} onSetStatus={setStatus} variant="fixed" />
-                  ))}
+      ) : null}
+
+      {/* Fix tracker below the markdown */}
+      {(fixes.length > 0 || loadingFixes) && (
+        <div className="mt-6 pt-5 border-t border-gray-800">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+              ✅ Fix Tasks
+            </h4>
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <span className="px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400">{pending.length} pending</span>
+              {needsReverify.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">
+                  {needsReverify.length} verify
+                </span>
+              )}
+              <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">{fixed.length} fixed</span>
+            </div>
+          </div>
+
+          {loadingFixes ? (
+            <p className="text-xs text-gray-500">Loading fix tasks…</p>
+          ) : (
+            <div className="space-y-3">
+              {needsReverify.length > 0 && (
+                <FixSection title="Needs re-verify" color="orange" fixes={needsReverify} onSetStatus={setStatus} variant="verify" />
+              )}
+              {pending.length > 0 && (
+                <FixSection title="Pending" color="yellow" fixes={pending} onSetStatus={setStatus} />
+              )}
+              {fixed.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setShowFixed(!showFixed)}
+                    className="text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-300 mb-2 inline-flex items-center gap-1"
+                  >
+                    Fixed ({fixed.length}) {showFixed ? '▾' : '▸'}
+                  </button>
+                  {showFixed && (
+                    <div className="space-y-1.5">
+                      {fixed.map((f) => (
+                        <FixRow key={f.id} fix={f} onSetStatus={setStatus} variant="fixed" />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
+          <p className="text-[10px] text-gray-600 mt-3">
+            Tip: the full fix details are in the recommendations above. Use this checklist to mark each issue done.
+          </p>
         </div>
       )}
     </div>
@@ -203,27 +216,31 @@ export default function AIRecommendations({
 }
 
 function FixSection({ title, color, fixes, onSetStatus, variant }) {
-  const colorClass = color === 'orange' ? 'text-orange-400' : color === 'yellow' ? 'text-gray-500' : 'text-gray-500';
+  const colorClass = color === 'orange' ? 'text-orange-400' : 'text-gray-500';
   return (
     <div>
-      <p className={`text-[10px] uppercase tracking-wider mb-2 ${colorClass}`}>{title}</p>
-      <div className="space-y-2">
+      <p className={`text-[10px] uppercase tracking-wider mb-1.5 ${colorClass}`}>{title}</p>
+      <div className="space-y-1.5">
         {fixes.map((f) => (
-          <FixCard key={f.id} fix={f} onSetStatus={onSetStatus} variant={variant} />
+          <FixRow key={f.id} fix={f} onSetStatus={onSetStatus} variant={variant} />
         ))}
       </div>
     </div>
   );
 }
 
-function FixCard({ fix, onSetStatus, variant = 'pending' }) {
+function FixRow({ fix, onSetStatus, variant = 'pending' }) {
   const isFixed = fix.status === 'fixed';
-  const impact = fix.impact;
-  const hasDetails = fix.impact || fix.expected_gain || fix.rocket_path || fix.caveats;
+  const map = {
+    High: 'bg-red-500/10 text-red-400',
+    Medium: 'bg-yellow-500/10 text-yellow-400',
+    Low: 'bg-gray-700 text-gray-400',
+  };
+  const impactClass = map[fix.impact] || '';
 
   return (
     <div
-      className={`rounded-lg border p-3 flex items-start gap-3 ${
+      className={`rounded-lg border px-3 py-2 flex items-start gap-3 ${
         variant === 'verify'
           ? 'bg-orange-500/5 border-orange-500/20'
           : variant === 'fixed'
@@ -234,68 +251,44 @@ function FixCard({ fix, onSetStatus, variant = 'pending' }) {
       <button
         onClick={() => onSetStatus(fix.id, isFixed ? 'pending' : 'fixed')}
         title={isFixed ? 'Mark as pending again' : 'Mark as fixed'}
-        className={`mt-0.5 w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors ${
+        className={`mt-0.5 w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
           isFixed
             ? 'bg-green-500 border-green-500 hover:bg-green-600'
             : 'border-gray-600 hover:border-blue-500 bg-transparent'
         }`}
       >
         {isFixed && (
-          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+          <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
           </svg>
         )}
       </button>
 
       <div className="flex-1 min-w-0">
-        {/* Title row */}
-        <div className={`text-sm font-semibold flex items-center gap-2 flex-wrap ${isFixed ? 'text-gray-400 line-through' : 'text-white'}`}>
+        <div className={`text-xs font-medium flex items-center gap-2 flex-wrap ${isFixed ? 'text-gray-400 line-through' : 'text-white'}`}>
           <span>{fix.title}</span>
-          {impact && <ImpactPill impact={impact} muted={isFixed} />}
-          {fix.expected_gain && !isFixed && (
-            <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">
-              {fix.expected_gain}
+          {fix.impact && !isFixed && (
+            <span className={`text-[9px] font-normal px-1.5 py-0.5 rounded ${impactClass}`}>
+              {fix.impact}
             </span>
+          )}
+          {fix.expected_gain && !isFixed && (
+            <span className="text-[9px] font-normal text-blue-400">{fix.expected_gain}</span>
           )}
           {variant === 'verify' && (
-            <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300">
-              reappeared after scan
+            <span className="text-[9px] font-normal px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300">
+              reappeared
             </span>
           )}
         </div>
-
-        {/* Details */}
-        {hasDetails && !isFixed && (
-          <div className="mt-2 space-y-1.5 text-xs">
-            {fix.rocket_path && (
-              <div>
-                <span className="text-gray-500">WP Rocket path: </span>
-                <code className="px-1.5 py-0.5 rounded bg-gray-950 text-blue-300 font-mono">{fix.rocket_path}</code>
-              </div>
-            )}
-            {fix.action && (
-              <div className="text-gray-300">
-                <span className="text-gray-500">Action: </span>
-                {fix.action}
-              </div>
-            )}
-            {fix.caveats && (
-              <div className="text-gray-400">
-                <span className="text-gray-500">Caveats: </span>
-                {fix.caveats}
-              </div>
-            )}
+        {fix.rocket_path && !isFixed && (
+          <div className="text-[10px] text-blue-300 font-mono mt-0.5 truncate" title={fix.rocket_path}>
+            {fix.rocket_path}
           </div>
         )}
-
-        {/* Timestamps */}
-        <div className="text-[10px] text-gray-600 mt-2">
-          {isFixed && fix.fixed_at ? (
-            <>fixed {formatAgo(fix.fixed_at)}</>
-          ) : (
-            <>first seen {formatAgo(fix.first_seen_at)} · last seen {formatAgo(fix.last_seen_at)}</>
-          )}
-        </div>
+        {isFixed && fix.fixed_at && (
+          <div className="text-[10px] text-gray-600 mt-0.5">fixed {formatAgo(fix.fixed_at)}</div>
+        )}
       </div>
 
       {variant === 'verify' && (
@@ -310,20 +303,6 @@ function FixCard({ fix, onSetStatus, variant = 'pending' }) {
   );
 }
 
-function ImpactPill({ impact, muted }) {
-  const map = {
-    High: 'bg-red-500/10 text-red-400',
-    Medium: 'bg-yellow-500/10 text-yellow-400',
-    Low: 'bg-gray-700 text-gray-400',
-  };
-  const cls = map[impact] || 'bg-gray-700 text-gray-400';
-  return (
-    <span className={`text-[10px] font-normal px-1.5 py-0.5 rounded ${muted ? 'bg-gray-800 text-gray-500' : cls}`}>
-      {impact}
-    </span>
-  );
-}
-
 function formatAgo(iso) {
   if (!iso) return 'unknown';
   const ms = Date.now() - new Date(iso).getTime();
@@ -335,4 +314,145 @@ function formatAgo(iso) {
   const d = Math.floor(h / 24);
   if (d < 7) return `${d}d ago`;
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Minimal markdown renderer — headings (#, ##, ###), bold (**…**),
+// inline code (`…`), unordered lists, paragraphs, horizontal rules, and
+// [text](url) links.
+function MarkdownBlock({ text }) {
+  if (!text) return null;
+  const lines = text.split('\n');
+  const nodes = [];
+  let listBuffer = [];
+  let paraBuffer = [];
+  let key = 0;
+
+  function flushList() {
+    if (listBuffer.length > 0) {
+      nodes.push(
+        <ul key={`ul-${key++}`} className="list-disc list-outside pl-5 space-y-1 my-2">
+          {listBuffer.map((item, i) => (
+            <li key={i}>{renderInline(item, `li-${key}-${i}`)}</li>
+          ))}
+        </ul>
+      );
+      listBuffer = [];
+    }
+  }
+
+  function flushPara() {
+    if (paraBuffer.length > 0) {
+      const joined = paraBuffer.join(' ');
+      nodes.push(
+        <p key={`p-${key++}`} className="my-2 text-gray-300">
+          {renderInline(joined, `p-${key}`)}
+        </p>
+      );
+      paraBuffer = [];
+    }
+  }
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (line === '') {
+      flushList();
+      flushPara();
+      continue;
+    }
+
+    const h = /^(#{1,3})\s+(.+)/.exec(line);
+    if (h) {
+      flushList();
+      flushPara();
+      const level = h[1].length;
+      const cls =
+        level === 1
+          ? 'text-lg font-bold text-white mt-5 mb-2'
+          : level === 2
+          ? 'text-base font-semibold text-white mt-4 mb-2'
+          : 'text-sm font-semibold text-purple-300 mt-4 mb-1.5';
+      const Tag = level === 1 ? 'h3' : level === 2 ? 'h4' : 'h5';
+      nodes.push(
+        <Tag key={`h-${key++}`} className={cls}>
+          {renderInline(h[2], `h-${key}`)}
+        </Tag>
+      );
+      continue;
+    }
+
+    const li = /^\s*[-*]\s+(.+)/.exec(line);
+    if (li) {
+      flushPara();
+      listBuffer.push(li[1]);
+      continue;
+    }
+
+    if (/^-{3,}$/.test(line)) {
+      flushList();
+      flushPara();
+      nodes.push(<hr key={`hr-${key++}`} className="my-4 border-gray-800" />);
+      continue;
+    }
+
+    flushList();
+    paraBuffer.push(line);
+  }
+
+  flushList();
+  flushPara();
+
+  return <div>{nodes}</div>;
+}
+
+function renderInline(text, keyBase) {
+  const tokens = [];
+  let buffer = '';
+  let i = 0;
+
+  while (i < text.length) {
+    // Markdown link [text](url)
+    if (text[i] === '[') {
+      const closeBracket = text.indexOf(']', i + 1);
+      if (closeBracket !== -1 && text[closeBracket + 1] === '(') {
+        const closeParen = text.indexOf(')', closeBracket + 2);
+        if (closeParen !== -1) {
+          if (buffer) { tokens.push({ type: 'text', value: buffer }); buffer = ''; }
+          tokens.push({
+            type: 'link',
+            value: text.slice(i + 1, closeBracket),
+            href: text.slice(closeBracket + 2, closeParen),
+          });
+          i = closeParen + 1;
+          continue;
+        }
+      }
+    }
+    if (text[i] === '*' && text[i + 1] === '*') {
+      if (buffer) { tokens.push({ type: 'text', value: buffer }); buffer = ''; }
+      const end = text.indexOf('**', i + 2);
+      if (end === -1) { buffer += text.slice(i); i = text.length; }
+      else { tokens.push({ type: 'bold', value: text.slice(i + 2, end) }); i = end + 2; }
+    } else if (text[i] === '`') {
+      if (buffer) { tokens.push({ type: 'text', value: buffer }); buffer = ''; }
+      const end = text.indexOf('`', i + 1);
+      if (end === -1) { buffer += text.slice(i); i = text.length; }
+      else { tokens.push({ type: 'code', value: text.slice(i + 1, end) }); i = end + 1; }
+    } else {
+      buffer += text[i];
+      i++;
+    }
+  }
+  if (buffer) tokens.push({ type: 'text', value: buffer });
+
+  return tokens.map((tok, idx) => {
+    const k = `${keyBase}-${idx}`;
+    if (tok.type === 'bold') return <strong key={k} className="text-white font-semibold">{tok.value}</strong>;
+    if (tok.type === 'code') return (
+      <code key={k} className="px-1.5 py-0.5 rounded bg-gray-800 text-blue-300 text-xs font-mono">{tok.value}</code>
+    );
+    if (tok.type === 'link') return (
+      <a key={k} href={tok.href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline underline-offset-2">{tok.value}</a>
+    );
+    return <span key={k}>{tok.value}</span>;
+  });
 }
