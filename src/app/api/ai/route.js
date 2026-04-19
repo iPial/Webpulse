@@ -53,7 +53,7 @@ export async function POST(request) {
     const [fullOutcome, compactOutcome] = await Promise.allSettled([
       callAIProvider(provider, apiKey, fullPrompt, 2500),
       compactPrompt
-        ? callAIProvider(provider, apiKey, compactPrompt, 800)
+        ? callAIProvider(provider, apiKey, compactPrompt, 3500)
         : Promise.resolve(null),
     ]);
 

@@ -208,14 +208,25 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
       });
     }
 
-    // 3e) AI top fixes (if provided)
+    // 3e) AI top fixes (if provided) — show at most 5 in Slack, rest via dashboard
     if (aiSummariesBySiteId && aiSummariesBySiteId[site.id]) {
       const ai = aiSummariesBySiteId[site.id];
+      const allFixes = ai.topFixes || [];
+      const top = allFixes.slice(0, 5);
+      const overflow = allFixes.length - top.length;
+
       const aiLines = ['🤖 *Top fixes*'];
       if (ai.summary) aiLines.push(`_${escapeSlack(ai.summary)}_`);
-      for (const fix of ai.topFixes || []) {
-        aiLines.push(`• *${escapeSlack(fix.title)}*`);
+      for (const fix of top) {
+        const impact = fix.impact ? ` _[${fix.impact}]_` : '';
+        aiLines.push(`• *${escapeSlack(fix.title)}*${impact}`);
+        if (fix.rocketPath) aiLines.push(`   ↳ \`${escapeSlack(fix.rocketPath)}\``);
         aiLines.push(`   ↳ ${escapeSlack(fix.action)}`);
+      }
+      if (overflow > 0 && baseUrl) {
+        aiLines.push(`   <${baseUrl}/site/${site.id}|+${overflow} more fix${overflow !== 1 ? 'es' : ''} in dashboard →>`);
+      } else if (overflow > 0) {
+        aiLines.push(`_+${overflow} more fix${overflow !== 1 ? 'es' : ''} in dashboard_`);
       }
       blocks.push({
         type: 'section',

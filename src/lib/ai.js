@@ -189,7 +189,9 @@ function buildGenericPrompt(site, mobile, desktop) {
 
 // ---------- Compact JSON prompt — for notifications (Slack/email) ----------
 
-// Asks the model to return ONLY JSON with a one-line summary and top 3 fixes.
+// Asks the model to return ONLY JSON with a one-line summary and one fix
+// per provided issue (critical + improvement). Includes Impact / Expected gain
+// / WP Rocket path / Caveats so the dashboard can render rich per-issue cards.
 export function buildCompactPrompt(site, mobile) {
   const isWPRocket = Array.isArray(site.tags) && site.tags.includes('wp-rocket');
 
@@ -198,18 +200,32 @@ export function buildCompactPrompt(site, mobile) {
   parts.push('');
   parts.push(`Target JSON shape:`);
   parts.push('{');
-  parts.push('  "summary": "one-sentence diagnosis, max 100 chars",');
+  parts.push('  "summary": "one-sentence diagnosis, max 120 chars",');
   parts.push('  "topFixes": [');
-  parts.push('    { "title": "Short issue title (max 60 chars)", "action": "precise action to take (max 120 chars)" }');
+  parts.push('    {');
+  parts.push('      "title": "Short issue title (max 80 chars, stable across scans)",');
+  parts.push('      "impact": "High | Medium | Low",');
+  parts.push('      "expectedGain": "~+N points" or "" if unknown,');
+  parts.push(isWPRocket
+    ? '      "rocketPath": "Tab → Section → Option" or "" if not addressable via WP Rocket,'
+    : '      "rocketPath": "" (unused — leave empty),');
+  parts.push('      "action": "precise action to take (max 200 chars)",');
+  parts.push('      "caveats": "known conflicts or verification step (max 200 chars)" or ""');
+  parts.push('    }');
   parts.push('  ]');
   parts.push('}');
   parts.push('');
-  parts.push(`topFixes: exactly 3 items, in priority order (biggest expected score gain first).`);
+  parts.push('Rules:');
+  parts.push('- Produce ONE fix per issue in the lists below (critical + improvement). Don\'t skip any.');
+  parts.push('- Order by impact: High → Medium → Low.');
+  parts.push('- Keep titles STABLE across scans (they are used as a database key). Prefer the Lighthouse audit title verbatim.');
 
   if (isWPRocket) {
-    parts.push(`This site uses WP Rocket. Each action MUST reference a real WP Rocket setting path using the format "Tab → Section → Option". Real tabs: Dashboard, Cache, File Optimization, Media, Preload, Advanced Rules, Database, CDN, Heartbeat, Add-ons, Image Optimization.`);
+    parts.push('- This site uses WP Rocket. rocketPath MUST reference a real WP Rocket setting path using "Tab → Section → Option".');
+    parts.push('- Real tabs: Dashboard, Cache, File Optimization, Media, Preload, Advanced Rules, Database, CDN, Heartbeat, Add-ons, Image Optimization.');
+    parts.push('- If an issue is NOT addressable via WP Rocket, leave rocketPath empty and explain in action + caveats.');
   } else {
-    parts.push(`Each action should be concrete and tool-specific (CDN, plugin, theme, or server config).`);
+    parts.push('- Each action should be concrete and tool-specific (CDN, plugin, theme, or server config).');
   }
 
   parts.push('');
@@ -219,15 +235,15 @@ export function buildCompactPrompt(site, mobile) {
   if (mobile) {
     parts.push(...buildScoreBlock('Mobile', mobile));
     if (mobile.audits?.critical?.length) {
-      parts.push(...buildAuditList(mobile.audits.critical, 'Critical Issues', 8));
+      parts.push(...buildAuditList(mobile.audits.critical, 'Critical Issues', 30));
     }
     if (mobile.audits?.improvement?.length) {
-      parts.push(...buildAuditList(mobile.audits.improvement, 'Improvement Opportunities', 6));
+      parts.push(...buildAuditList(mobile.audits.improvement, 'Improvement Opportunities', 20));
     }
   }
 
   parts.push('');
-  parts.push('Return only the JSON object.');
+  parts.push('Return only the JSON object — no preamble, no code fence.');
 
   return parts.join('\n');
 }
@@ -237,20 +253,26 @@ export function buildCompactPrompt(site, mobile) {
 export function parseCompactResponse(text) {
   if (!text || typeof text !== 'string') return null;
 
+  // Strip common code-fence wrappers
+  let src = text.trim();
+  if (src.startsWith('```')) {
+    src = src.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  }
+
   // Try direct parse first
   try {
-    return normalizeCompact(JSON.parse(text));
+    return normalizeCompact(JSON.parse(src));
   } catch {
     // fall through
   }
 
   // Extract first {...} block
-  const first = text.indexOf('{');
-  const last = text.lastIndexOf('}');
+  const first = src.indexOf('{');
+  const last = src.lastIndexOf('}');
   if (first === -1 || last === -1 || last <= first) return null;
 
   try {
-    return normalizeCompact(JSON.parse(text.slice(first, last + 1)));
+    return normalizeCompact(JSON.parse(src.slice(first, last + 1)));
   } catch {
     return null;
   }
@@ -262,14 +284,26 @@ function normalizeCompact(obj) {
   const topFixes = Array.isArray(obj.topFixes)
     ? obj.topFixes
         .filter((f) => f && typeof f === 'object')
-        .slice(0, 3)
         .map((f) => ({
-          title: String(f.title || '').slice(0, 100),
-          action: String(f.action || '').slice(0, 180),
+          title: String(f.title || '').slice(0, 200).trim(),
+          action: String(f.action || '').slice(0, 280).trim(),
+          impact: normalizeImpact(f.impact),
+          expectedGain: String(f.expectedGain || '').slice(0, 60).trim(),
+          rocketPath: String(f.rocketPath || '').slice(0, 200).trim(),
+          caveats: String(f.caveats || '').slice(0, 400).trim(),
         }))
         .filter((f) => f.title && f.action)
+        .slice(0, 50)            // hard safety cap
     : [];
 
   if (!summary && topFixes.length === 0) return null;
   return { summary, topFixes };
+}
+
+function normalizeImpact(v) {
+  const s = String(v || '').trim().toLowerCase();
+  if (s === 'high') return 'High';
+  if (s === 'medium' || s === 'med') return 'Medium';
+  if (s === 'low') return 'Low';
+  return '';
 }

@@ -508,29 +508,32 @@ export async function upsertSiteFixes(siteId, fixes = []) {
 
   for (const fix of fixes) {
     if (!fix?.title) continue;
+    const commonFields = {
+      action: fix.action || null,
+      impact: fix.impact || null,
+      expected_gain: fix.expectedGain || null,
+      rocket_path: fix.rocketPath || null,
+      caveats: fix.caveats || null,
+      last_seen_at: nowIso,
+    };
+
     const prior = existingByTitle.get(fix.title);
     if (!prior) {
       toInsert.push({
         site_id: siteId,
         title: fix.title,
-        action: fix.action || null,
         status: 'pending',
-        last_seen_at: nowIso,
+        ...commonFields,
       });
     } else if (prior.status === 'fixed') {
       toUpdate.push({
         id: prior.id,
-        patch: {
-          action: fix.action || null,
-          last_seen_at: nowIso,
-          needs_reverify: true,
-        },
+        patch: { ...commonFields, needs_reverify: true },
       });
     } else {
-      // still pending — refresh action + timestamp
       toUpdate.push({
         id: prior.id,
-        patch: { action: fix.action || null, last_seen_at: nowIso },
+        patch: commonFields,
       });
     }
   }

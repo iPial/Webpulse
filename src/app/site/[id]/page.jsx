@@ -6,7 +6,6 @@ import AIRecommendations from '@/components/AIRecommendations';
 import ScanHistoryTable from '@/components/ScanHistoryTable';
 import SiteDetailActions from '@/components/SiteDetailActions';
 import SiteProgress from '@/components/SiteProgress';
-import FixChecklist from '@/components/FixChecklist';
 import { resolveLogoUrl } from '@/lib/logos';
 
 export default async function SiteDetailPage({ params }) {
@@ -81,10 +80,8 @@ export default async function SiteDetailPage({ params }) {
         <AIRecommendations
           siteId={site.id}
           isWPRocket={site.tags?.includes('wp-rocket')}
-          initialMarkdown={site.ai_markdown || null}
           initialGeneratedAt={site.ai_generated_at || null}
         />
-        <FixChecklist siteId={site.id} />
         <ScanHistoryTable results={results} />
       </div>
     </div>

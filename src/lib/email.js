@@ -125,23 +125,57 @@ function topIssues(audits, limit = 3) {
   `;
 }
 
-function aiFixes(aiSummary) {
+function aiFixes(aiSummary, siteId, baseUrl) {
   if (!aiSummary) return '';
-  const summary = aiSummary.summary ? `<div style="color:#E5E7EB; font-style:italic; margin-bottom:8px; font-size:13px;">${escapeHTML(aiSummary.summary)}</div>` : '';
-  const fixes = (aiSummary.topFixes || []).map(
-    (f) => `
-      <li style="margin:6px 0; color:#E5E7EB; font-size:13px;">
-        <strong style="color:#F9FAFB;">${escapeHTML(f.title)}</strong> — <span style="color:#C4B5FD;">${escapeHTML(f.action)}</span>
-      </li>`
-  ).join('');
+  const summary = aiSummary.summary
+    ? `<div style="color:#E5E7EB; font-style:italic; margin-bottom:8px; font-size:13px;">${escapeHTML(aiSummary.summary)}</div>`
+    : '';
+
+  const allFixes = aiSummary.topFixes || [];
+  const top = allFixes.slice(0, 5);
+  const overflow = allFixes.length - top.length;
+
+  const fixes = top.map((f) => {
+    const impact = f.impact
+      ? `<span style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:999px; background:${impactBg(f.impact)}; color:${impactFg(f.impact)}; font-size:10px; font-weight:600;">${f.impact}</span>`
+      : '';
+    const rocketPath = f.rocketPath
+      ? `<div style="margin-top:2px; color:#93C5FD; font-size:11px; font-family:monospace;">${escapeHTML(f.rocketPath)}</div>`
+      : '';
+    return `
+      <li style="margin:8px 0; color:#E5E7EB; font-size:13px;">
+        <div><strong style="color:#F9FAFB;">${escapeHTML(f.title)}</strong>${impact}</div>
+        ${rocketPath}
+        <div style="color:#C4B5FD; margin-top:2px;">${escapeHTML(f.action)}</div>
+      </li>`;
+  }).join('');
+
+  const moreLink = overflow > 0 && baseUrl
+    ? `<div style="margin-top:8px; font-size:12px;"><a href="${baseUrl}/site/${siteId}" style="color:#93C5FD; text-decoration:none;">+${overflow} more fix${overflow !== 1 ? 'es' : ''} in dashboard →</a></div>`
+    : overflow > 0
+      ? `<div style="margin-top:8px; color:#9CA3AF; font-size:12px;">+${overflow} more fix${overflow !== 1 ? 'es' : ''} in dashboard</div>`
+      : '';
+
   if (!summary && !fixes) return '';
   return `
     <div style="margin-top:14px; padding:12px 14px; background:#1F1630; border-left:3px solid #A855F7; border-radius:4px;">
       <div style="color:#C4B5FD; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">🤖 AI — Top Fixes</div>
       ${summary}
       <ul style="margin:0; padding-left:18px;">${fixes}</ul>
+      ${moreLink}
     </div>
   `;
+}
+
+function impactBg(impact) {
+  if (impact === 'High') return '#7F1D1D';
+  if (impact === 'Medium') return '#78350F';
+  return '#374151';
+}
+function impactFg(impact) {
+  if (impact === 'High') return '#FCA5A5';
+  if (impact === 'Medium') return '#FCD34D';
+  return '#D1D5DB';
 }
 
 function siteCard({ site, mobile, desktop, previous = {} }, baseUrl, aiSummary) {
@@ -213,7 +247,7 @@ function siteCard({ site, mobile, desktop, previous = {} }, baseUrl, aiSummary) 
           : ''
       }
 
-      ${aiFixes(aiSummary)}
+      ${aiFixes(aiSummary, site.id, baseUrl)}
 
       ${
         reportUrl

@@ -4,8 +4,8 @@ import { runPageSpeedAudit, formatAuditSummary, detectRegression } from '@/lib/p
 import { saveScanResult, upsertMonthlySnapshot, getTeamIntegrations, upsertSiteFixes } from '@/lib/db';
 import { sendSlackMessage, buildDailySummary } from '@/lib/slack';
 import { sendReportEmail, buildReportHTML } from '@/lib/email';
-import { resolveAIConfig, callAIProvider, buildCompactPrompt, parseCompactResponse } from '@/lib/ai';
 import { logEvent } from '@/lib/logs';
+import { runCompactAIForSites } from '@/lib/ai-batch';
 
 // POST /api/schedules/run
 // Runs scans INLINE (no QStash dependency for the scan itself).
@@ -209,21 +209,10 @@ async function runScheduleInline(supabase, schedule) {
     // Detect regressions
     const regressions = await detectAllRegressions(supabase, siteResults);
 
-    // Optionally run AI for each site
+    // Optionally run AI for each site — runCompactAIForSites persists fixes too
     let aiSummariesBySiteId = null;
     if (cfg.notifyAI) {
       aiSummariesBySiteId = await runCompactAIForSites(teamId, siteResults);
-
-      // Persist AI fixes to the tracker table (idempotent, upserts by title)
-      if (aiSummariesBySiteId) {
-        await Promise.allSettled(
-          Object.entries(aiSummariesBySiteId).map(([siteId, ai]) =>
-            upsertSiteFixes(Number(siteId), ai.topFixes || []).catch((err) => {
-              console.error(`upsertSiteFixes failed for site ${siteId}:`, err.message);
-            })
-          )
-        );
-      }
     }
 
     // Send notifications
@@ -447,86 +436,7 @@ async function detectAllRegressions(supabase, siteResults) {
   return regressions;
 }
 
-// Run compact AI analysis for each site that has a mobile result — IN PARALLEL.
-// Serial calls across 5+ sites easily cross the 60s Vercel limit.
-// Returns { [siteId]: { summary, topFixes } }. Failures are logged but non-fatal.
-async function runCompactAIForSites(teamId, siteResults) {
-  try {
-    const { provider, apiKey } = await resolveAIConfig(teamId);
-    if (!apiKey) {
-      await logEvent({
-        teamId,
-        type: 'ai',
-        level: 'warn',
-        message: 'AI analysis skipped — no API key configured',
-        metadata: { hint: 'Add AI provider key in Settings > Integrations' },
-      });
-      return null;
-    }
-
-    // Build one promise per site, run all concurrently
-    const jobs = [];
-    for (const [siteId, { site, results }] of siteResults) {
-      const mobile = results.mobile;
-      if (!mobile) continue;
-      jobs.push(analyzeOneSite(teamId, provider, apiKey, siteId, site, mobile));
-    }
-
-    const outcomes = await Promise.allSettled(jobs);
-    const byId = {};
-    for (const o of outcomes) {
-      if (o.status === 'fulfilled' && o.value?.parsed) {
-        byId[o.value.siteId] = o.value.parsed;
-      }
-    }
-    return byId;
-  } catch (err) {
-    await logEvent({
-      teamId,
-      type: 'ai',
-      level: 'error',
-      message: `AI resolution failed: ${err.message}`,
-      metadata: { error: err.message },
-    });
-    return null;
-  }
-}
-
-async function analyzeOneSite(teamId, provider, apiKey, siteId, site, mobile) {
-  const startedAt = Date.now();
-  try {
-    const prompt = buildCompactPrompt(site, mobile);
-    const text = await callAIProvider(provider, apiKey, prompt, 800);
-    const parsed = parseCompactResponse(text);
-    if (parsed) {
-      await logEvent({
-        teamId,
-        type: 'ai',
-        level: 'info',
-        message: `AI summary generated for ${site.name}`,
-        metadata: { siteId, provider, durationMs: Date.now() - startedAt, fixes: parsed.topFixes.length },
-      });
-      return { siteId, parsed };
-    }
-    await logEvent({
-      teamId,
-      type: 'ai',
-      level: 'warn',
-      message: `AI returned unparseable response for ${site.name}`,
-      metadata: { siteId, provider, durationMs: Date.now() - startedAt, preview: text.slice(0, 120) },
-    });
-    return { siteId, parsed: null };
-  } catch (err) {
-    await logEvent({
-      teamId,
-      type: 'ai',
-      level: 'error',
-      message: `AI call failed for ${site.name}: ${err.message}`,
-      metadata: { siteId, provider, error: err.message, durationMs: Date.now() - startedAt },
-    });
-    return { siteId, parsed: null };
-  }
-}
+// AI batch helper now lives in src/lib/ai-batch.js (shared with /api/export/slack).
 
 async function sendNotifications(supabase, teamId, siteResults, regressions, { notifySlack, notifyEmail, baseUrl, aiSummariesBySiteId }) {
   const integrations = await getTeamIntegrations(teamId);
