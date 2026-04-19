@@ -4,9 +4,11 @@ import { runPageSpeedAudit, formatAuditSummary, detectRegression } from '@/lib/p
 import { saveScanResult, upsertMonthlySnapshot, getTeamIntegrations } from '@/lib/db';
 import { sendSlackMessage, buildDailySummary } from '@/lib/slack';
 import { sendReportEmail, buildReportHTML } from '@/lib/email';
+import { resolveAIConfig, callAIProvider, buildCompactPrompt, parseCompactResponse } from '@/lib/ai';
+import { logEvent } from '@/lib/logs';
 
 // POST /api/schedules/run
-// Runs scans INLINE (no QStash dependency).
+// Runs scans INLINE (no QStash dependency for the scan itself).
 // Body: { scheduleId } — run a specific schedule
 // Or no body — run all pending schedules where scheduledAt <= now
 // This endpoint may also be called by QStash via `notBefore` delayed delivery.
@@ -56,7 +58,6 @@ export async function POST(request) {
       const outcome = await runScheduleInline(supabase, schedule);
       results.push(outcome);
 
-      // For recurring schedules, create the next occurrence
       if (outcome.status === 'completed') {
         await handleRecurrence(supabase, schedule).catch((err) => {
           console.error('Failed to create next recurrence:', err);
@@ -77,20 +78,34 @@ export async function POST(request) {
   }
 }
 
-// Run one schedule inline: scan sites, send notifications, update status.
+// Run one schedule inline: scan sites, optionally run AI, send notifications, update status.
 async function runScheduleInline(supabase, schedule) {
   const scheduleId = schedule.id;
   const teamId = schedule.team_id;
   const cfg = schedule.config || {};
+  const startedAt = Date.now();
 
-  // Mark as running
   await supabase
     .from('integrations')
     .update({ config: { ...cfg, status: 'running' } })
     .eq('id', scheduleId);
 
+  await logEvent({
+    teamId,
+    type: 'schedule',
+    level: 'info',
+    message: `Schedule #${scheduleId} run started`,
+    metadata: {
+      scheduleId,
+      scheduledAt: cfg.scheduledAt,
+      notifySlack: !!cfg.notifySlack,
+      notifyEmail: !!cfg.notifyEmail,
+      notifyAI: !!cfg.notifyAI,
+    },
+  });
+
   try {
-    // Get the team's PageSpeed API key
+    // PageSpeed API key
     const { data: psiConfig } = await supabase
       .from('integrations')
       .select('config')
@@ -104,10 +119,10 @@ async function runScheduleInline(supabase, schedule) {
       throw new Error('No PageSpeed API key configured. Add one in Settings > Integrations.');
     }
 
-    // Get enabled sites for this team
+    // Enabled sites
     const { data: sites, error: sitesError } = await supabase
       .from('sites')
-      .select('id, url, name, team_id')
+      .select('id, url, name, team_id, tags')
       .eq('team_id', teamId)
       .eq('enabled', true);
 
@@ -121,28 +136,32 @@ async function runScheduleInline(supabase, schedule) {
         })
         .eq('id', scheduleId);
 
+      await logEvent({
+        teamId,
+        type: 'schedule',
+        level: 'warn',
+        message: `Schedule #${scheduleId} has no enabled sites to scan`,
+        metadata: { scheduleId },
+      });
+
       return { scheduleId, status: 'completed', sitesScanned: 0, note: 'No sites to scan' };
     }
 
     // Scan every site × both strategies in parallel
     const scanJobs = [];
     for (const site of sites) {
-      scanJobs.push(scanSiteStrategy(site, 'mobile', apiKey));
-      scanJobs.push(scanSiteStrategy(site, 'desktop', apiKey));
+      scanJobs.push(scanSiteStrategy(site, 'mobile', apiKey, teamId));
+      scanJobs.push(scanSiteStrategy(site, 'desktop', apiKey, teamId));
     }
 
     const scanResults = await Promise.allSettled(scanJobs);
-
-    // Count successes/failures
     const succeeded = scanResults.filter((r) => r.status === 'fulfilled').length;
     const failed = scanResults.filter((r) => r.status === 'rejected').length;
 
-    // Collect successful scans for notifications
     const successfulScans = scanResults
       .filter((r) => r.status === 'fulfilled')
       .map((r) => r.value);
 
-    // Build siteResults map for Slack/email formatters
     const siteResults = new Map();
     for (const scan of successfulScans) {
       if (!siteResults.has(scan.siteId)) {
@@ -151,18 +170,25 @@ async function runScheduleInline(supabase, schedule) {
       siteResults.get(scan.siteId).results[scan.strategy] = scan.row;
     }
 
-    // Detect regressions (mobile only, compare to previous monthly snapshot)
+    // Detect regressions
     const regressions = await detectAllRegressions(supabase, siteResults);
 
-    // Send notifications based on schedule preferences
+    // Optionally run AI for each site
+    let aiSummariesBySiteId = null;
+    if (cfg.notifyAI) {
+      aiSummariesBySiteId = await runCompactAIForSites(teamId, siteResults);
+    }
+
+    // Send notifications
     const baseUrl = getPublicBaseUrl();
     const notifications = await sendNotifications(supabase, teamId, siteResults, regressions, {
       notifySlack: cfg.notifySlack,
       notifyEmail: cfg.notifyEmail,
       baseUrl,
+      aiSummariesBySiteId,
     });
 
-    // Update schedule status to completed
+    // Mark completed
     await supabase
       .from('integrations')
       .update({
@@ -175,6 +201,20 @@ async function runScheduleInline(supabase, schedule) {
         },
       })
       .eq('id', scheduleId);
+
+    await logEvent({
+      teamId,
+      type: 'schedule',
+      level: 'info',
+      message: `Schedule #${scheduleId} completed (${succeeded} ok, ${failed} failed)`,
+      metadata: {
+        scheduleId,
+        sitesScanned: succeeded,
+        scanFailures: failed,
+        notifications,
+        durationMs: Date.now() - startedAt,
+      },
+    });
 
     return {
       scheduleId,
@@ -193,64 +233,102 @@ async function runScheduleInline(supabase, schedule) {
       })
       .eq('id', scheduleId);
 
+    await logEvent({
+      teamId,
+      type: 'schedule',
+      level: 'error',
+      message: `Schedule #${scheduleId} failed: ${err.message}`,
+      metadata: { scheduleId, error: err.message, durationMs: Date.now() - startedAt },
+    });
+
     return { scheduleId, status: 'failed', error: err.message };
   }
 }
 
 // Scan one site × strategy, save result, return the scan data
-async function scanSiteStrategy(site, strategy, apiKey) {
-  const result = await runPageSpeedAudit(site.url, strategy, { apiKey });
+async function scanSiteStrategy(site, strategy, apiKey, teamId) {
+  const startedAt = Date.now();
+  try {
+    const result = await runPageSpeedAudit(site.url, strategy, { apiKey });
 
-  const row = await saveScanResult({
-    siteId: site.id,
-    strategy,
-    scores: result.scores,
-    vitals: result.vitals,
-    audits: result.audits,
-  });
-
-  // Upsert monthly snapshot (mobile only — primary metric)
-  if (strategy === 'mobile') {
-    const now = new Date();
-    const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    const summary = formatAuditSummary(result.audits);
-
-    await upsertMonthlySnapshot({
+    await saveScanResult({
       siteId: site.id,
-      month,
+      strategy,
       scores: result.scores,
-      counts: {
-        critical: summary.criticalCount,
-        improvement: summary.improvementCount,
-        optional: summary.optionalCount,
-      },
-      avgVitals: {
-        fcpMs: result.vitals.fcpMs != null ? Math.round(result.vitals.fcpMs) : null,
-        lcpMs: result.vitals.lcpMs != null ? Math.round(result.vitals.lcpMs) : null,
+      vitals: result.vitals,
+      audits: result.audits,
+    });
+
+    if (strategy === 'mobile') {
+      const now = new Date();
+      const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+      const summary = formatAuditSummary(result.audits);
+
+      await upsertMonthlySnapshot({
+        siteId: site.id,
+        month,
+        scores: result.scores,
+        counts: {
+          critical: summary.criticalCount,
+          improvement: summary.improvementCount,
+          optional: summary.optionalCount,
+        },
+        avgVitals: {
+          fcpMs: result.vitals.fcpMs != null ? Math.round(result.vitals.fcpMs) : null,
+          lcpMs: result.vitals.lcpMs != null ? Math.round(result.vitals.lcpMs) : null,
+        },
+      });
+    }
+
+    await logEvent({
+      teamId,
+      type: 'scan',
+      level: 'info',
+      message: `Scanned ${site.name} (${strategy}) — perf ${result.scores.performance}, a11y ${result.scores.accessibility}`,
+      metadata: {
+        siteId: site.id,
+        siteName: site.name,
+        strategy,
+        scores: result.scores,
+        durationMs: Date.now() - startedAt,
       },
     });
-  }
 
-  // Return the DB row (with scores + audits) shaped like scan_results table
-  return {
-    siteId: site.id,
-    site,
-    strategy,
-    row: {
-      site_id: site.id,
+    return {
+      siteId: site.id,
+      site,
       strategy,
-      performance: result.scores.performance,
-      accessibility: result.scores.accessibility,
-      best_practices: result.scores.bestPractices,
-      seo: result.scores.seo,
-      fcp: result.vitals.fcp,
-      lcp: result.vitals.lcp,
-      tbt: result.vitals.tbt,
-      cls: result.vitals.cls,
-      si: result.vitals.si,
-      audits: result.audits,
-    },
-  };
+      row: {
+        site_id: site.id,
+        strategy,
+        performance: result.scores.performance,
+        accessibility: result.scores.accessibility,
+        best_practices: result.scores.bestPractices,
+        seo: result.scores.seo,
+        fcp: result.vitals.fcp,
+        lcp: result.vitals.lcp,
+        tbt: result.vitals.tbt,
+        cls: result.vitals.cls,
+        si: result.vitals.si,
+        audits: result.audits,
+      },
+    };
+  } catch (err) {
+    await logEvent({
+      teamId,
+      type: 'scan',
+      level: 'error',
+      message: `Scan failed for ${site.name} (${strategy}): ${err.message}`,
+      metadata: {
+        siteId: site.id,
+        siteName: site.name,
+        strategy,
+        error: err.message,
+        durationMs: Date.now() - startedAt,
+      },
+    });
+    throw err;
+  }
 }
 
 async function detectAllRegressions(supabase, siteResults) {
@@ -291,7 +369,75 @@ async function detectAllRegressions(supabase, siteResults) {
   return regressions;
 }
 
-async function sendNotifications(supabase, teamId, siteResults, regressions, { notifySlack, notifyEmail, baseUrl }) {
+// Run compact AI analysis for each site that has a mobile result.
+// Returns { [siteId]: { summary, topFixes } }. Failures are logged but non-fatal.
+async function runCompactAIForSites(teamId, siteResults) {
+  try {
+    const { provider, apiKey } = await resolveAIConfig(teamId);
+    if (!apiKey) {
+      await logEvent({
+        teamId,
+        type: 'ai',
+        level: 'warn',
+        message: 'AI analysis skipped — no API key configured',
+        metadata: { hint: 'Add AI provider key in Settings > Integrations' },
+      });
+      return null;
+    }
+
+    const byId = {};
+    for (const [siteId, { site, results }] of siteResults) {
+      const mobile = results.mobile;
+      if (!mobile) continue;
+
+      const startedAt = Date.now();
+      try {
+        const prompt = buildCompactPrompt(site, mobile);
+        const text = await callAIProvider(provider, apiKey, prompt, 800);
+        const parsed = parseCompactResponse(text);
+        if (parsed) {
+          byId[siteId] = parsed;
+          await logEvent({
+            teamId,
+            type: 'ai',
+            level: 'info',
+            message: `AI summary generated for ${site.name}`,
+            metadata: { siteId, provider, durationMs: Date.now() - startedAt, fixes: parsed.topFixes.length },
+          });
+        } else {
+          await logEvent({
+            teamId,
+            type: 'ai',
+            level: 'warn',
+            message: `AI returned unparseable response for ${site.name}`,
+            metadata: { siteId, provider, durationMs: Date.now() - startedAt, preview: text.slice(0, 120) },
+          });
+        }
+      } catch (err) {
+        await logEvent({
+          teamId,
+          type: 'ai',
+          level: 'error',
+          message: `AI call failed for ${site.name}: ${err.message}`,
+          metadata: { siteId, provider, error: err.message, durationMs: Date.now() - startedAt },
+        });
+      }
+    }
+
+    return byId;
+  } catch (err) {
+    await logEvent({
+      teamId,
+      type: 'ai',
+      level: 'error',
+      message: `AI resolution failed: ${err.message}`,
+      metadata: { error: err.message },
+    });
+    return null;
+  }
+}
+
+async function sendNotifications(supabase, teamId, siteResults, regressions, { notifySlack, notifyEmail, baseUrl, aiSummariesBySiteId }) {
   const integrations = await getTeamIntegrations(teamId);
   const sent = [];
 
@@ -299,15 +445,35 @@ async function sendNotifications(supabase, teamId, siteResults, regressions, { n
     const slack = integrations.find((i) => i.type === 'slack' && i.enabled);
     if (slack?.config?.webhookUrl) {
       try {
-        const message = buildDailySummary(siteResults, regressions, { baseUrl });
+        const message = buildDailySummary(siteResults, regressions, { baseUrl, aiSummariesBySiteId });
         await sendSlackMessage(slack.config.webhookUrl, message);
         sent.push('slack');
+        await logEvent({
+          teamId,
+          type: 'notification',
+          level: 'info',
+          message: 'Slack report sent',
+          metadata: { sitesIncluded: siteResults.size, withAI: !!aiSummariesBySiteId },
+        });
       } catch (err) {
-        console.error('Slack notification failed:', err.message);
         sent.push(`slack-failed: ${err.message}`);
+        await logEvent({
+          teamId,
+          type: 'notification',
+          level: 'error',
+          message: `Slack send failed: ${err.message}`,
+          metadata: { error: err.message },
+        });
       }
     } else {
       sent.push('slack-skipped: no webhook configured');
+      await logEvent({
+        teamId,
+        type: 'notification',
+        level: 'warn',
+        message: 'Slack notification skipped — no webhook configured',
+        metadata: {},
+      });
     }
   }
 
@@ -330,7 +496,7 @@ async function sendNotifications(supabase, teamId, siteResults, regressions, { n
 
       const recipients = Array.from(recipientSet);
       if (recipients.length > 0 && emailSites.length > 0) {
-        const html = buildReportHTML(emailSites, { baseUrl });
+        const html = buildReportHTML(emailSites, { baseUrl, aiSummariesBySiteId });
         const date = new Date().toISOString().slice(0, 10);
         await sendReportEmail({
           to: recipients,
@@ -338,19 +504,38 @@ async function sendNotifications(supabase, teamId, siteResults, regressions, { n
           html,
         });
         sent.push('email');
+        await logEvent({
+          teamId,
+          type: 'notification',
+          level: 'info',
+          message: `Email report sent to ${recipients.length} recipient(s)`,
+          metadata: { recipients, withAI: !!aiSummariesBySiteId },
+        });
       } else if (recipients.length === 0) {
         sent.push('email-skipped: no recipients');
+        await logEvent({
+          teamId,
+          type: 'notification',
+          level: 'warn',
+          message: 'Email notification skipped — no recipients',
+          metadata: {},
+        });
       }
     } catch (err) {
-      console.error('Email notification failed:', err.message);
       sent.push(`email-failed: ${err.message}`);
+      await logEvent({
+        teamId,
+        type: 'notification',
+        level: 'error',
+        message: `Email send failed: ${err.message}`,
+        metadata: { error: err.message },
+      });
     }
   }
 
   return sent;
 }
 
-// Get the public URL for building links in notifications
 function getPublicBaseUrl() {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
@@ -361,9 +546,8 @@ function getPublicBaseUrl() {
   return '';
 }
 
-// For recurring schedules, create the next occurrence
 async function handleRecurrence(supabase, schedule) {
-  const { frequency, scheduledAt, notifySlack, notifyEmail, createdBy } = schedule.config;
+  const { frequency, scheduledAt, notifySlack, notifyEmail, notifyAI, createdBy } = schedule.config;
 
   if (!frequency || frequency === 'once') return;
 
@@ -387,8 +571,6 @@ async function handleRecurrence(supabase, schedule) {
       return;
   }
 
-  // If the "next" time is still in the past (e.g., daily schedule that slipped),
-  // advance it forward in increments until it's in the future
   const nowMs = Date.now();
   while (next.getTime() <= nowMs) {
     if (frequency === 'daily') next.setDate(next.getDate() + 1);
@@ -396,7 +578,6 @@ async function handleRecurrence(supabase, schedule) {
     else if (frequency === 'monthly') next.setMonth(next.getMonth() + 1);
   }
 
-  // Create next occurrence record
   const { data: newSchedule, error } = await supabase
     .from('integrations')
     .insert({
@@ -407,6 +588,7 @@ async function handleRecurrence(supabase, schedule) {
         frequency,
         notifySlack: !!notifySlack,
         notifyEmail: !!notifyEmail,
+        notifyAI: !!notifyAI,
         status: 'pending',
         createdBy,
       },
@@ -420,16 +602,34 @@ async function handleRecurrence(supabase, schedule) {
     return;
   }
 
-  // Try to enqueue the QStash delayed job for auto-firing (best-effort)
+  await logEvent({
+    teamId: schedule.team_id,
+    type: 'schedule',
+    level: 'info',
+    message: `Next occurrence created: schedule #${newSchedule.id} for ${next.toISOString()}`,
+    metadata: { newScheduleId: newSchedule.id, frequency, scheduledAt: next.toISOString() },
+  });
+
   try {
     const { enqueueScheduleFire } = await import('@/lib/queue');
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL;
+    const baseUrl = getPublicBaseUrl();
     if (baseUrl && newSchedule) {
-      const fullUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
-      await enqueueScheduleFire(newSchedule.id, next, fullUrl);
+      const result = await enqueueScheduleFire(newSchedule.id, next, baseUrl);
+      await logEvent({
+        teamId: schedule.team_id,
+        type: 'schedule',
+        level: 'info',
+        message: `QStash auto-fire queued for recurring schedule #${newSchedule.id}`,
+        metadata: { scheduleId: newSchedule.id, messageId: result?.messageId || null },
+      });
     }
   } catch (err) {
-    console.error('Failed to enqueue next recurrence delayed job:', err.message);
-    // Not fatal — the fallback cron will still pick it up
+    await logEvent({
+      teamId: schedule.team_id,
+      type: 'schedule',
+      level: 'error',
+      message: `QStash auto-fire failed for recurring schedule #${newSchedule.id}: ${err.message}`,
+      metadata: { scheduleId: newSchedule.id, error: err.message },
+    });
   }
 }

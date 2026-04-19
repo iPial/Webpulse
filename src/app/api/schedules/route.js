@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase';
 import { getUserTeams } from '@/lib/db';
+import { logEvent } from '@/lib/logs';
 
 // GET /api/schedules?teamId=xxx
 // List all schedules (integrations where type='schedule') for the team
@@ -52,7 +53,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { teamId, scheduledAt, frequency, notifySlack, notifyEmail } = body;
+    const { teamId, scheduledAt, frequency, notifySlack, notifyEmail, notifyAI } = body;
 
     if (!teamId) {
       return NextResponse.json({ error: 'teamId is required' }, { status: 400 });
@@ -73,6 +74,7 @@ export async function POST(request) {
       frequency: frequency || 'once',
       notifySlack: !!notifySlack,
       notifyEmail: !!notifyEmail,
+      notifyAI: !!notifyAI,
       status: 'pending',
       createdBy: user.id,
     };
@@ -91,17 +93,47 @@ export async function POST(request) {
 
     if (error) throw error;
 
+    await logEvent({
+      teamId,
+      type: 'schedule',
+      level: 'info',
+      message: `Schedule #${data.id} created for ${scheduleDate.toISOString()}`,
+      metadata: {
+        scheduleId: data.id,
+        scheduledAt: scheduleDate.toISOString(),
+        frequency: config.frequency,
+        notifySlack: config.notifySlack,
+        notifyEmail: config.notifyEmail,
+        notifyAI: config.notifyAI,
+        createdBy: user.email,
+      },
+    });
+
     // Try to enqueue a QStash delayed job that fires at the scheduled time.
     // Best-effort: if QStash is unconfigured, the user can still use "Run Now".
     let autoFireStatus = 'none';
     try {
       const { enqueueScheduleFire } = await import('@/lib/queue');
       const baseUrl = getBaseUrl(request);
-      await enqueueScheduleFire(data.id, scheduleDate, baseUrl);
+      const result = await enqueueScheduleFire(data.id, scheduleDate, baseUrl);
       autoFireStatus = 'queued';
+      await logEvent({
+        teamId,
+        type: 'schedule',
+        level: 'info',
+        message: `QStash auto-fire queued for schedule #${data.id}`,
+        metadata: { scheduleId: data.id, baseUrl, messageId: result?.messageId || null },
+      });
     } catch (qstashErr) {
       console.error('Failed to enqueue auto-fire (schedule still created):', qstashErr.message);
       autoFireStatus = `failed: ${qstashErr.message}`;
+      await logEvent({
+        teamId,
+        type: 'schedule',
+        level: 'error',
+        message: `QStash auto-fire failed for schedule #${data.id}: ${qstashErr.message}`,
+        metadata: { scheduleId: data.id, error: qstashErr.message, hint: 'Use "Run Now" to trigger manually. Check QSTASH_TOKEN / NEXT_PUBLIC_SITE_URL env vars in Vercel.' },
+      });
     }
 
     return NextResponse.json({ schedule: data, autoFire: autoFireStatus }, { status: 201 });

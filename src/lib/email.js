@@ -110,7 +110,26 @@ function topIssues(audits, limit = 3) {
   `;
 }
 
-function siteCard({ site, mobile, desktop }, baseUrl) {
+function aiFixes(aiSummary) {
+  if (!aiSummary) return '';
+  const summary = aiSummary.summary ? `<div style="color:#E5E7EB; font-style:italic; margin-bottom:8px; font-size:13px;">${escapeHTML(aiSummary.summary)}</div>` : '';
+  const fixes = (aiSummary.topFixes || []).map(
+    (f) => `
+      <li style="margin:6px 0; color:#E5E7EB; font-size:13px;">
+        <strong style="color:#F9FAFB;">${escapeHTML(f.title)}</strong> — <span style="color:#C4B5FD;">${escapeHTML(f.action)}</span>
+      </li>`
+  ).join('');
+  if (!summary && !fixes) return '';
+  return `
+    <div style="margin-top:14px; padding:12px 14px; background:#1F1630; border-left:3px solid #A855F7; border-radius:4px;">
+      <div style="color:#C4B5FD; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">🤖 AI — Top Fixes</div>
+      ${summary}
+      <ul style="margin:0; padding-left:18px;">${fixes}</ul>
+    </div>
+  `;
+}
+
+function siteCard({ site, mobile, desktop }, baseUrl, aiSummary) {
   const reportUrl = baseUrl ? `${baseUrl}/site/${site.id}` : null;
   const primary = mobile || desktop;
 
@@ -169,6 +188,8 @@ function siteCard({ site, mobile, desktop }, baseUrl) {
           : ''
       }
 
+      ${aiFixes(aiSummary)}
+
       ${
         reportUrl
           ? `
@@ -182,8 +203,9 @@ function siteCard({ site, mobile, desktop }, baseUrl) {
   `;
 }
 
-// Build HTML email for a scan report
-export function buildReportHTML(sites, { baseUrl = '' } = {}) {
+// Build HTML email for a scan report.
+// aiSummariesBySiteId: optional { [siteId]: { summary, topFixes } }
+export function buildReportHTML(sites, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
   // Count criticals across sites
   let totalCritical = 0;
   for (const { mobile, desktop } of sites) {
@@ -191,11 +213,21 @@ export function buildReportHTML(sites, { baseUrl = '' } = {}) {
     if (r?.audits?.critical) totalCritical += r.audits.critical.length;
   }
 
+  const dashboardButton = baseUrl
+    ? `
+      <div style="text-align:center; margin:16px 0 24px 0;">
+        <a href="${baseUrl}" style="display:inline-block; padding:12px 28px; background:#2563EB; color:#fff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:600;">📊 Open Dashboard →</a>
+      </div>
+    `
+    : '';
+
   const dashboardLink = baseUrl
     ? `<a href="${baseUrl}" style="color:#60A5FA; text-decoration:none;">Open Dashboard →</a>`
     : '';
 
-  const cards = sites.map((s) => siteCard(s, baseUrl)).join('');
+  const cards = sites
+    .map((s) => siteCard(s, baseUrl, aiSummariesBySiteId?.[s.site.id] || null))
+    .join('');
 
   return `
     <!DOCTYPE html>
@@ -206,7 +238,7 @@ export function buildReportHTML(sites, { baseUrl = '' } = {}) {
     </head>
     <body style="margin: 0; padding: 0; background-color: #0B1120; color: #E5E7EB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
       <div style="max-width: 720px; margin: 0 auto; padding: 32px 16px;">
-        <div style="margin-bottom: 24px;">
+        <div style="margin-bottom: 8px;">
           <h1 style="color: #F9FAFB; font-size: 22px; margin: 0 0 6px 0;">📊 Webpulse Scan Report</h1>
           <p style="color: #9CA3AF; font-size: 14px; margin: 0;">
             <strong style="color:#F3F4F6;">${sites.length}</strong> site${sites.length !== 1 ? 's' : ''} scanned
@@ -216,8 +248,11 @@ export function buildReportHTML(sites, { baseUrl = '' } = {}) {
                 ? `<span style="color: #EF4444; font-weight:600;">🔴 ${totalCritical} critical issue${totalCritical !== 1 ? 's' : ''}</span>`
                 : '<span style="color: #10B981; font-weight:600;">✅ No critical issues</span>'
             }
+            ${aiSummariesBySiteId ? '&nbsp;·&nbsp;<span style="color:#C4B5FD; font-weight:600;">🤖 AI analysis included</span>' : ''}
           </p>
         </div>
+
+        ${dashboardButton}
 
         ${cards}
 

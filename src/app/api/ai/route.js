@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSiteById, getSiteResults } from '@/lib/db';
-import { createServiceSupabase } from '@/lib/supabase';
+import { resolveAIConfig, callAIProvider, buildFullPrompt } from '@/lib/ai';
+import { logEvent } from '@/lib/logs';
 
 // POST /api/ai
 // Body: { siteId }
-// Returns AI-generated recommendations based on latest scan results
+// Returns AI-generated recommendations based on latest scan results.
 export async function POST(request) {
   try {
     const cookieStore = await cookies();
@@ -21,32 +22,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Site not found' }, { status: 404 });
     }
 
-    // Get team's AI provider config, fall back to legacy anthropic type, then env var
-    const supabase = createServiceSupabase();
-    let { data: aiConfig } = await supabase
-      .from('integrations')
-      .select('config')
-      .eq('team_id', site.team_id)
-      .eq('type', 'ai_provider')
-      .eq('enabled', true)
-      .maybeSingle();
-
-    // Backwards compat: fall back to legacy 'anthropic' type
-    if (!aiConfig) {
-      const { data: legacyConfig } = await supabase
-        .from('integrations')
-        .select('config')
-        .eq('team_id', site.team_id)
-        .eq('type', 'anthropic')
-        .eq('enabled', true)
-        .maybeSingle();
-      if (legacyConfig) {
-        aiConfig = { config: { provider: 'anthropic', apiKey: legacyConfig.config.apiKey } };
-      }
-    }
-
-    const provider = aiConfig?.config?.provider || 'anthropic';
-    const apiKey = aiConfig?.config?.apiKey || process.env.ANTHROPIC_API_KEY;
+    const { provider, apiKey } = await resolveAIConfig(site.team_id);
     if (!apiKey) {
       return NextResponse.json(
         { error: 'AI not configured. Add your AI API key in Settings > Integrations.' },
@@ -54,7 +30,6 @@ export async function POST(request) {
       );
     }
 
-    // Get latest results (mobile + desktop)
     const results = await getSiteResults(cookieStore, site.id, { limit: 4 });
     const mobile = results.find((r) => r.strategy === 'mobile');
     const desktop = results.find((r) => r.strategy === 'desktop');
@@ -63,18 +38,35 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No scan results available for analysis' }, { status: 404 });
     }
 
-    const prompt = buildPrompt(site, mobile, desktop);
+    const prompt = buildFullPrompt(site, mobile, desktop);
+    const startedAt = Date.now();
 
     let text;
-    if (provider === 'openai') {
-      text = await callOpenAI(apiKey, prompt);
-    } else if (provider === 'gemini') {
-      text = await callGemini(apiKey, prompt);
-    } else {
-      text = await callAnthropic(apiKey, prompt);
+    try {
+      text = await callAIProvider(provider, apiKey, prompt, 2500);
+    } catch (err) {
+      await logEvent({
+        teamId: site.team_id,
+        type: 'ai',
+        level: 'error',
+        message: `AI analysis failed for ${site.name}: ${err.message}`,
+        metadata: { siteId: site.id, provider, durationMs: Date.now() - startedAt },
+      });
+      return NextResponse.json(
+        { error: 'AI analysis failed', details: err.message },
+        { status: 502 }
+      );
     }
 
-    return NextResponse.json({ recommendations: text });
+    await logEvent({
+      teamId: site.team_id,
+      type: 'ai',
+      level: 'info',
+      message: `AI analysis generated for ${site.name}`,
+      metadata: { siteId: site.id, provider, durationMs: Date.now() - startedAt, chars: text.length },
+    });
+
+    return NextResponse.json({ recommendations: text || 'No recommendations generated.' });
   } catch (error) {
     console.error('AI analysis error:', error);
     return NextResponse.json(
@@ -82,182 +74,4 @@ export async function POST(request) {
       { status: 500 }
     );
   }
-}
-
-async function callAnthropic(apiKey, prompt) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2500,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    console.error('Anthropic API error:', errBody);
-    throw new Error('AI analysis failed');
-  }
-
-  const data = await response.json();
-  return data.content?.[0]?.text || 'No recommendations generated.';
-}
-
-async function callOpenAI(apiKey, prompt) {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o',
-      max_tokens: 2500,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    console.error('OpenAI API error:', errBody);
-    throw new Error('AI analysis failed');
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || 'No recommendations generated.';
-}
-
-async function callGemini(apiKey, prompt) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    console.error('Gemini API error:', errBody);
-    throw new Error('AI analysis failed');
-  }
-
-  const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No recommendations generated.';
-}
-
-function buildPrompt(site, mobile, desktop) {
-  const isWPRocket = Array.isArray(site.tags) && site.tags.includes('wp-rocket');
-  return isWPRocket
-    ? buildWPRocketPrompt(site, mobile, desktop)
-    : buildGenericPrompt(site, mobile, desktop);
-}
-
-function buildScoreBlock(label, result) {
-  const lines = [`## ${label} Scores`];
-  lines.push(`Performance: ${result.performance}/100`);
-  lines.push(`Accessibility: ${result.accessibility}/100`);
-  lines.push(`Best Practices: ${result.best_practices}/100`);
-  lines.push(`SEO: ${result.seo}/100`);
-  lines.push(`Core Vitals — LCP: ${result.lcp || 'N/A'} · FCP: ${result.fcp || 'N/A'} · TBT: ${result.tbt || 'N/A'} · CLS: ${result.cls || 'N/A'}`);
-  return lines;
-}
-
-// Render each audit with its full Lighthouse description so the AI can
-// produce specific, grounded advice.
-function buildAuditList(audits, heading, limit = 12) {
-  if (!audits || audits.length === 0) return [];
-  const lines = ['', `### ${heading}`];
-  for (const a of audits.slice(0, limit)) {
-    lines.push('');
-    lines.push(`**${a.title}** (score ${a.score}${a.displayValue ? `, ${a.displayValue}` : ''})`);
-    if (a.description) {
-      lines.push(a.description.trim());
-    }
-  }
-  return lines;
-}
-
-function buildWPRocketPrompt(site, mobile, desktop) {
-  const parts = [];
-  parts.push(`You are a WordPress performance expert who specialises in WP Rocket caching and optimisation.`);
-  parts.push(`The site "${site.name}" (${site.url}) runs WordPress with the WP Rocket plugin.`);
-  parts.push('');
-  parts.push(`For EACH issue below, respond in this EXACT markdown format:`);
-  parts.push('');
-  parts.push(`### [Issue title]`);
-  parts.push(`- **Impact**: [High / Medium / Low] · Expected gain: ~+N points`);
-  parts.push(`- **WP Rocket path**: \`[Tab] → [Section] → [Option]\``);
-  parts.push(`- **Action**: [precise toggle / setting / value to change]`);
-  parts.push(`- **Caveats**: [known conflicts, compatibility, things to verify after]`);
-  parts.push('');
-  parts.push(`Only reference real WP Rocket tabs: Dashboard, Cache, File Optimization, Media, Preload, Advanced Rules, Database, CDN, Heartbeat, Add-ons, Image Optimization.`);
-  parts.push(`If an issue cannot be fixed with WP Rocket, say so plainly and suggest the correct tool (e.g. image plugin, hosting server setting, theme change).`);
-  parts.push(`Do not invent WP Rocket features. If unsure, say "not directly addressable via WP Rocket" and explain.`);
-  parts.push('');
-  parts.push(`Order issues by highest expected score gain first. Prioritise issues that affect Core Web Vitals (LCP, TBT, CLS).`);
-  parts.push('');
-  parts.push(`Cover at most 8 issues. Keep each entry under 120 words.`);
-  parts.push('');
-  parts.push('---');
-
-  if (mobile) {
-    parts.push('');
-    parts.push(...buildScoreBlock('Mobile', mobile));
-    if (mobile.audits) {
-      parts.push(...buildAuditList(mobile.audits.critical || [], 'Critical Issues (Mobile)'));
-      parts.push(...buildAuditList(mobile.audits.improvement || [], 'Improvement Opportunities (Mobile)', 10));
-    }
-  }
-
-  if (desktop) {
-    parts.push('');
-    parts.push(...buildScoreBlock('Desktop', desktop));
-  }
-
-  parts.push('');
-  parts.push('Begin your response now. Do not include any preamble — start directly with the first `### [Issue title]` heading.');
-
-  return parts.join('\n');
-}
-
-function buildGenericPrompt(site, mobile, desktop) {
-  const parts = [
-    `Analyze the PageSpeed Insights results for "${site.name}" (${site.url}) and provide actionable recommendations.`,
-    '',
-  ];
-
-  if (mobile) {
-    parts.push(...buildScoreBlock('Mobile', mobile));
-    if (mobile.audits) {
-      parts.push(...buildAuditList(mobile.audits.critical || [], 'Critical Issues (Mobile)'));
-      parts.push(...buildAuditList(mobile.audits.improvement || [], 'Improvement Opportunities (Mobile)', 10));
-    }
-  }
-
-  if (desktop) {
-    parts.push('');
-    parts.push(...buildScoreBlock('Desktop', desktop));
-  }
-
-  parts.push('');
-  parts.push('For each issue provide:');
-  parts.push('');
-  parts.push('### [Issue title]');
-  parts.push('- **Impact**: [High / Medium / Low] · Expected gain: ~+N points');
-  parts.push('- **Action**: [specific, concrete steps to fix it]');
-  parts.push('- **Caveats**: [things to watch out for]');
-  parts.push('');
-  parts.push('Order by highest expected score gain first. Cover at most 8 issues. Start directly with the first heading — no preamble.');
-
-  return parts.join('\n');
 }

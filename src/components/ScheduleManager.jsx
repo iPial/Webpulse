@@ -54,6 +54,7 @@ export default function ScheduleManager({ teamId }) {
   const [frequency, setFrequency] = useState('once');
   const [notifySlack, setNotifySlack] = useState(false);
   const [notifyEmail, setNotifyEmail] = useState(false);
+  const [notifyAI, setNotifyAI] = useState(false);
 
   useEffect(() => {
     fetchSchedules();
@@ -92,6 +93,7 @@ export default function ScheduleManager({ teamId }) {
           frequency,
           notifySlack,
           notifyEmail,
+          notifyAI,
         }),
       });
 
@@ -171,6 +173,7 @@ export default function ScheduleManager({ teamId }) {
     setFrequency('once');
     setNotifySlack(false);
     setNotifyEmail(false);
+    setNotifyAI(false);
   }
 
   return (
@@ -272,6 +275,15 @@ export default function ScheduleManager({ teamId }) {
               />
               <span className="text-sm text-gray-300">Notify via Email</span>
             </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifyAI}
+                onChange={(e) => setNotifyAI(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500 focus:ring-offset-0"
+              />
+              <span className="text-sm text-gray-300">🤖 Include AI analysis</span>
+            </label>
           </div>
 
           {/* Submit */}
@@ -344,7 +356,10 @@ function ScheduleRow({ schedule, onDelete, onRunNow }) {
               Email
             </span>
           )}
-          {!config.notifySlack && !config.notifyEmail && (
+          {config.notifyAI && (
+            <span className="text-xs text-purple-400 flex items-center gap-1">🤖 AI</span>
+          )}
+          {!config.notifySlack && !config.notifyEmail && !config.notifyAI && (
             <span className="text-xs text-gray-500">No notifications</span>
           )}
         </div>

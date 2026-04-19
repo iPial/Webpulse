@@ -69,8 +69,8 @@ function formatVitals(result) {
 }
 
 // Build the scan summary for Slack (Block Kit format).
-// Each site gets: name, mobile/desktop scores, issue counts, "View Report" link.
-export function buildDailySummary(siteResults, regressions, { baseUrl = '' } = {}) {
+// Each site gets: name, mobile/desktop scores, issue counts, optional AI top fixes, "View Report" link.
+export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
   const blocks = [];
 
   // Header
@@ -82,7 +82,7 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '' } = {
     text: { type: 'plain_text', text: '📊 Webpulse Scan Report', emoji: true },
   });
 
-  blocks.push({
+  const summaryBlock = {
     type: 'section',
     text: {
       type: 'mrkdwn',
@@ -90,10 +90,23 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '' } = {
         `*${totalSites}* site${totalSites !== 1 ? 's' : ''} scanned` +
         (totalCritical > 0
           ? `  ·  🔴 *${totalCritical}* critical issue${totalCritical !== 1 ? 's' : ''}`
-          : '  ·  ✅ No critical issues'),
+          : '  ·  ✅ No critical issues') +
+        (aiSummariesBySiteId ? '  ·  🤖 AI analysis included' : ''),
     },
-  });
+  };
 
+  // Open Dashboard button on the summary row
+  if (baseUrl) {
+    summaryBlock.accessory = {
+      type: 'button',
+      text: { type: 'plain_text', text: 'Open Dashboard', emoji: true },
+      url: baseUrl,
+      style: 'primary',
+      action_id: 'open_dashboard',
+    };
+  }
+
+  blocks.push(summaryBlock);
   blocks.push({ type: 'divider' });
 
   // Per-site sections
@@ -141,6 +154,20 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '' } = {
     }
 
     blocks.push(sectionBlock);
+
+    // 🤖 AI top fixes for this site, if available
+    if (aiSummariesBySiteId && aiSummariesBySiteId[site.id]) {
+      const ai = aiSummariesBySiteId[site.id];
+      const aiLines = ['🤖 *Top fixes*'];
+      if (ai.summary) aiLines.push(`_${escapeSlack(ai.summary)}_`);
+      for (const fix of ai.topFixes || []) {
+        aiLines.push(`• *${escapeSlack(fix.title)}* — ${escapeSlack(fix.action)}`);
+      }
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: aiLines.join('\n') },
+      });
+    }
   }
 
   // Regression alerts
@@ -194,8 +221,10 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '' } = {
 }
 
 // Text-only fallback for webhooks that don't support blocks
-export function buildDailySummaryText(siteResults, regressions, { baseUrl = '' } = {}) {
-  const lines = ['*📊 Webpulse Scan Report*', ''];
+export function buildDailySummaryText(siteResults, regressions, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
+  const lines = ['*📊 Webpulse Scan Report*'];
+  if (baseUrl) lines.push(`<${baseUrl}|Open Dashboard>`);
+  lines.push('');
 
   for (const [, { site, results }] of siteResults) {
     const mobile = results.mobile;
@@ -216,6 +245,15 @@ export function buildDailySummaryText(siteResults, regressions, { baseUrl = '' }
       lines.push(`   🖥️ Desktop: ${formatScores(desktop)}`);
       const v = formatVitals(desktop);
       if (v) lines.push(`      _${v}_`);
+    }
+
+    if (aiSummariesBySiteId && aiSummariesBySiteId[site.id]) {
+      const ai = aiSummariesBySiteId[site.id];
+      lines.push(`   🤖 Top fixes:`);
+      if (ai.summary) lines.push(`      _${escapeSlack(ai.summary)}_`);
+      for (const fix of ai.topFixes || []) {
+        lines.push(`      • *${escapeSlack(fix.title)}* — ${escapeSlack(fix.action)}`);
+      }
     }
 
     if (baseUrl) {
