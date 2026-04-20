@@ -31,18 +31,24 @@ export async function enqueueScan(siteId, baseUrl) {
   return result;
 }
 
-// Publish scan jobs for multiple sites
+// Publish scan jobs for multiple sites.
+// Uses individual publishJSON calls in parallel (same path as the
+// known-working auto-fire) instead of batchJSON which has had delivery
+// inconsistencies in our setup.
 export async function enqueueBatchScans(siteIds, baseUrl) {
   const client = getClient();
 
-  const messages = siteIds.map((siteId) => ({
-    url: `${baseUrl}/api/scan/worker`,
-    body: { siteId },
-    retries: 3,
-  }));
-
-  // QStash batch endpoint — sends all messages in one API call
-  const results = await client.batchJSON(messages);
+  const results = await Promise.all(
+    siteIds.map((siteId) =>
+      client
+        .publishJSON({
+          url: `${baseUrl}/api/scan/worker`,
+          body: { siteId },
+          retries: 3,
+        })
+        .catch((err) => ({ error: err.message, siteId }))
+    )
+  );
   return results;
 }
 

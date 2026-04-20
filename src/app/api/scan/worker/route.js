@@ -10,18 +10,25 @@ import { logEvent } from '@/lib/logs';
 export async function POST(request) {
   let body;
 
-  try {
-    body = await verifyQStashSignature(request);
-  } catch (error) {
-    // Visibly log sig failures so they appear in /logs instead of vanishing
-    await logEvent({
-      teamId: null,
-      type: 'scan',
-      level: 'error',
-      message: `QStash sig verify failed at /api/scan/worker: ${error.message}`,
-      metadata: { error: error.message, hint: 'Check QSTASH_CURRENT_SIGNING_KEY / QSTASH_NEXT_SIGNING_KEY in Vercel env match your Upstash project.' },
-    }).catch(() => {});
-    return NextResponse.json({ error: 'Unauthorized', details: error.message }, { status: 401 });
+  // Accept either a valid QStash signature OR a matching internal shared
+  // secret. The shared-secret path lets the dispatcher call workers
+  // directly via fetch when QStash delivery is unreliable.
+  const internalSecret = request.headers.get('x-webpulse-internal');
+  if (internalSecret && internalSecret === process.env.CRON_SECRET) {
+    body = await request.json().catch(() => ({}));
+  } else {
+    try {
+      body = await verifyQStashSignature(request);
+    } catch (error) {
+      await logEvent({
+        teamId: null,
+        type: 'scan',
+        level: 'error',
+        message: `QStash sig verify failed at /api/scan/worker: ${error.message}`,
+        metadata: { error: error.message, hint: 'Check QSTASH_CURRENT_SIGNING_KEY / QSTASH_NEXT_SIGNING_KEY in Vercel env match your Upstash project.' },
+      }).catch(() => {});
+      return NextResponse.json({ error: 'Unauthorized', details: error.message }, { status: 401 });
+    }
   }
 
   const { siteId } = body;

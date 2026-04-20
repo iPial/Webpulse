@@ -166,10 +166,11 @@ async function dispatchSchedule(supabase, schedule, request) {
 
   try {
     // Each site → own QStash job → own 60s Vercel function
-    await enqueueBatchScans(siteIds, baseUrl);
+    const workerResults = await enqueueBatchScans(siteIds, baseUrl);
+    const workerMessageIds = (workerResults || []).map((r) => r?.messageId).filter(Boolean);
 
     // Delayed notify job aggregates results + sends
-    await enqueueNotify({ [teamId]: siteIds }, baseUrl, {
+    const notifyResult = await enqueueNotify({ [teamId]: siteIds }, baseUrl, {
       notifySlack: cfg.notifySlack,
       notifyEmail: cfg.notifyEmail,
       notifyAI: cfg.notifyAI,
@@ -178,11 +179,18 @@ async function dispatchSchedule(supabase, schedule, request) {
 
     await logEvent({
       teamId, type: 'schedule', level: 'info',
-      message: `Schedule #${scheduleId} workers + notify enqueued via QStash`,
-      metadata: { scheduleId, workerCount: siteIds.length },
+      message: `Schedule #${scheduleId} workers + notify enqueued via QStash (${workerMessageIds.length}/${siteIds.length} worker IDs received)`,
+      metadata: {
+        scheduleId,
+        workerCount: siteIds.length,
+        workerMessageIds,
+        notifyMessageId: notifyResult?.messageId || null,
+        baseUrl,
+        callbackUrl: `${baseUrl}/api/scan/worker`,
+      },
     });
 
-    return { scheduleId, status: 'dispatched', workers: siteIds.length };
+    return { scheduleId, status: 'dispatched', workers: siteIds.length, workerMessageIds };
   } catch (err) {
     await failSchedule(supabase, schedule, `QStash dispatch failed: ${err.message}`);
     await logEvent({
