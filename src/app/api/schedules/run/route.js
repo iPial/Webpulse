@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServiceSupabase } from '@/lib/supabase';
 import { enqueueBatchScans, enqueueNotify } from '@/lib/queue';
 import { logEvent } from '@/lib/logs';
+import { runNotifyPipeline } from '@/lib/notify';
 
 // POST /api/schedules/run
 // Body: { scheduleId } to run a specific schedule, or no body to pick due ones.
@@ -42,37 +43,20 @@ export async function POST(request) {
       if (error) throw error;
 
       const now = new Date();
-      const reclaimCutoffMs = now.getTime() - 2 * 60 * 1000;
+      // After 90 seconds in 'running', try to recover the schedule. If scan
+      // workers actually produced results, notify still runs and the
+      // schedule completes cleanly. If no results, mark failed.
+      const recoverCutoffMs = now.getTime() - 90 * 1000;
 
-      // Reclaim stuck-running schedules (only applies to OLD inline runs).
-      // New flow returns fast so this path is rarely hit.
       const stuck = (data || []).filter((s) => {
         const cfg = s.config || {};
         if (cfg.status !== 'running') return false;
         if (!cfg.runStartedAt) return true;
-        return new Date(cfg.runStartedAt).getTime() < reclaimCutoffMs;
+        return new Date(cfg.runStartedAt).getTime() < recoverCutoffMs;
       });
 
       for (const s of stuck) {
-        const cfg = s.config || {};
-        await supabase
-          .from('integrations')
-          .update({
-            config: {
-              ...cfg,
-              status: 'failed',
-              error: 'Function timed out. Click Retry to re-run.',
-              staleReclaimedAt: now.toISOString(),
-            },
-          })
-          .eq('id', s.id);
-        await logEvent({
-          teamId: s.team_id,
-          type: 'schedule',
-          level: 'error',
-          message: `Reclaimed stuck schedule #${s.id} (running since ${cfg.runStartedAt || 'unknown'})`,
-          metadata: { scheduleId: s.id, runStartedAt: cfg.runStartedAt },
-        });
+        await recoverStuckSchedule(supabase, s);
       }
 
       schedules = (data || []).filter((s) => {
@@ -218,6 +202,87 @@ async function failSchedule(supabase, schedule, errorMsg) {
       config: { ...cfg, status: 'failed', error: errorMsg, failedAt: new Date().toISOString() },
     })
     .eq('id', schedule.id);
+}
+
+// Called by the poller when a schedule has been 'running' for > 90s.
+// Runs notify inline if scan_results exist since runStartedAt; otherwise
+// marks failed. This makes scheduling robust to QStash notify-delivery
+// failures: even if the delayed notify job never fires, the dashboard
+// poller recovers the schedule within ~60s of the cutoff.
+async function recoverStuckSchedule(supabase, schedule) {
+  const scheduleId = schedule.id;
+  const teamId = schedule.team_id;
+  const cfg = schedule.config || {};
+  const runStartedAt = cfg.runStartedAt;
+
+  try {
+    // Get this team's enabled sites
+    const { data: sites } = await supabase
+      .from('sites')
+      .select('id')
+      .eq('team_id', teamId)
+      .eq('enabled', true);
+
+    const siteIds = (sites || []).map((s) => s.id);
+    if (siteIds.length === 0) {
+      await failSchedule(supabase, schedule, 'Stuck with no enabled sites.');
+      await logEvent({
+        teamId, type: 'schedule', level: 'error',
+        message: `Reclaimed stuck schedule #${scheduleId} — no sites`,
+        metadata: { scheduleId, runStartedAt },
+      });
+      return;
+    }
+
+    // Check for fresh scan_results since runStartedAt
+    const since = runStartedAt || new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: freshResults } = await supabase
+      .from('scan_results')
+      .select('site_id, scanned_at')
+      .in('site_id', siteIds)
+      .gte('scanned_at', since)
+      .limit(1);
+
+    if (!freshResults || freshResults.length === 0) {
+      await failSchedule(
+        supabase,
+        schedule,
+        'No scan results produced. Workers may have failed — check Logs.'
+      );
+      await logEvent({
+        teamId, type: 'schedule', level: 'error',
+        message: `Reclaimed stuck schedule #${scheduleId} — no fresh scan results`,
+        metadata: { scheduleId, runStartedAt, since },
+      });
+      return;
+    }
+
+    // We have scan data — run notify inline. This also marks the schedule
+    // completed via runNotifyPipeline.
+    await logEvent({
+      teamId, type: 'schedule', level: 'warn',
+      message: `Recovering stuck schedule #${scheduleId} via inline notify (${freshResults.length}+ fresh results)`,
+      metadata: { scheduleId, runStartedAt },
+    });
+
+    await runNotifyPipeline(
+      { [teamId]: siteIds },
+      {
+        notifySlack: cfg.notifySlack,
+        notifyEmail: cfg.notifyEmail,
+        notifyAI: cfg.notifyAI,
+        scheduleId,
+      }
+    );
+  } catch (err) {
+    console.error(`Recovery failed for schedule ${scheduleId}:`, err);
+    await failSchedule(supabase, schedule, `Recovery failed: ${err.message}`);
+    await logEvent({
+      teamId, type: 'schedule', level: 'error',
+      message: `Recovery failed for schedule #${scheduleId}: ${err.message}`,
+      metadata: { scheduleId, error: err.message },
+    });
+  }
 }
 
 function getPublicBaseUrl(request) {
