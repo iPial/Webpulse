@@ -1,17 +1,23 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabase } from '@/lib/supabase';
-import { runPageSpeedAudit, formatAuditSummary } from '@/lib/pagespeed';
-import { saveScanResult, upsertMonthlySnapshot } from '@/lib/db';
+import { enqueueBatchScans, enqueueNotify } from '@/lib/queue';
 import { runNotifyPipeline } from '@/lib/notify';
 import { logEvent } from '@/lib/logs';
 
 // POST /api/schedules/run
-// Body: { scheduleId } OR empty body (polls due pending + recovers stuck).
+// Body: { scheduleId } OR empty (poll: fire due + recover stuck).
 //
-// Fully inline: scans N sites in parallel with a tight PSI timeout, then
-// runs notify pipeline in-process. No QStash delivery involved, so a
-// QStash sig-verify failure in the old worker/notify path can't leave
-// the schedule stuck. Budget ~55s (fits Vercel Hobby 60s).
+// Architecture (QStash-powered, each site gets its own 60s budget):
+//   1. This endpoint dispatches: enqueue N scan-worker messages + 1 delayed
+//      notify message via QStash, mark schedule 'running', return in < 2s.
+//   2. /api/scan/worker (one Vercel function per site): mobile + desktop
+//      PSI, save scan_results.
+//   3. /api/scan/notify (one Vercel function, delayed): reads fresh results,
+//      runs AI if requested, sends Slack/email, marks schedule 'completed'.
+//
+// Recovery fallback: if a schedule has been 'running' for > 3 minutes (notify
+// never fired or failed), the poller's stuck handler runs runNotifyPipeline
+// inline so the schedule completes even when QStash delivery misbehaves.
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -39,21 +45,10 @@ export async function POST(request) {
       if (error) throw error;
 
       const now = new Date();
-
-      // Phase 2 work: schedules that have completed their scan phase but
-      // haven't been notified yet. Poller picks these up and runs the
-      // notify pipeline inline (its own function invocation = own budget).
-      const awaitingNotify = (data || []).filter((s) => {
-        const cfg = s.config || {};
-        return cfg.status === 'scanned';
-      });
-      for (const s of awaitingNotify) {
-        await runNotifyPhase(supabase, s);
-      }
-
-      // Recovery: schedules stuck in 'running' for > 90s (scan phase died
-      // mid-run). Try to recover from any fresh scan_results.
-      const recoverCutoffMs = now.getTime() - 90 * 1000;
+      // Recover schedules stuck in 'running' for > 3 min — notify never
+      // fired (QStash delivery failed or function died). Try to rescue by
+      // running notify inline if scan_results exist.
+      const recoverCutoffMs = now.getTime() - 3 * 60 * 1000;
       const stuck = (data || []).filter((s) => {
         const cfg = s.config || {};
         if (cfg.status !== 'running') return false;
@@ -74,16 +69,16 @@ export async function POST(request) {
       return NextResponse.json({ message: 'No schedules to run', count: 0 });
     }
 
-    // One schedule per invocation so each gets a full 60s budget.
+    // Process one schedule per invocation; leftovers picked up on next poll.
     const pickOne = scheduleId ? schedules : schedules.slice(0, 1);
     const leftover = schedules.length - pickOne.length;
 
     const results = [];
     for (const schedule of pickOne) {
-      const outcome = await runScheduleInline(supabase, schedule);
+      const outcome = await dispatchSchedule(supabase, schedule, request);
       results.push(outcome);
 
-      if (outcome.status === 'completed') {
+      if (outcome.status === 'dispatched') {
         await handleRecurrence(supabase, schedule).catch((err) => {
           console.error('Failed to create next recurrence:', err);
         });
@@ -91,251 +86,117 @@ export async function POST(request) {
     }
 
     return NextResponse.json({
-      message: `Processed ${results.length} schedule(s)`,
+      message: `Dispatched ${results.length} schedule(s)`,
       results,
       deferred: leftover,
     });
   } catch (error) {
-    console.error('Schedule run error:', error);
+    console.error('Schedule dispatch error:', error);
     return NextResponse.json(
-      { error: 'Failed to run schedules', details: error.message },
+      { error: 'Failed to dispatch schedules', details: error.message },
       { status: 500 }
     );
   }
 }
 
-// Two-phase pipeline:
-//   Phase 1 (this function): scans only. 50s PSI timeout per call is
-//       viable because no notify runs after. On completion, status is
-//       set to 'scanned'. Function returns around 50s.
-//   Phase 2: when the poller sees status='scanned', it runs
-//       runNotifyPhase() in a separate function invocation (its own
-//       60s budget) — sends Slack/email + marks 'completed'.
-async function runScheduleInline(supabase, schedule) {
+// Enqueue N scan workers + 1 delayed notify. Returns in < 2s.
+async function dispatchSchedule(supabase, schedule, request) {
   const scheduleId = schedule.id;
   const teamId = schedule.team_id;
   const cfg = schedule.config || {};
-  const fnStart = Date.now();
 
+  const { data: sites, error: sitesError } = await supabase
+    .from('sites')
+    .select('id, url, name, team_id, tags, logo_url')
+    .eq('team_id', teamId)
+    .eq('enabled', true);
+
+  if (sitesError) {
+    await failSchedule(supabase, schedule, sitesError.message);
+    return { scheduleId, status: 'failed', error: sitesError.message };
+  }
+
+  if (!sites || sites.length === 0) {
+    await supabase
+      .from('integrations')
+      .update({
+        config: { ...cfg, status: 'completed', completedAt: new Date().toISOString(), note: 'No sites to scan' },
+      })
+      .eq('id', scheduleId);
+    await logEvent({
+      teamId, type: 'schedule', level: 'warn',
+      message: `Schedule #${scheduleId} has no enabled sites`,
+      metadata: { scheduleId },
+    });
+    return { scheduleId, status: 'completed', sitesScanned: 0 };
+  }
+
+  const siteIds = sites.map((s) => s.id);
+  const baseUrl = getPublicBaseUrl(request);
+  if (!baseUrl) {
+    await failSchedule(supabase, schedule, 'Public base URL not set (NEXT_PUBLIC_SITE_URL).');
+    return { scheduleId, status: 'failed', error: 'Missing NEXT_PUBLIC_SITE_URL' };
+  }
+
+  // Mark running
   await supabase
     .from('integrations')
-    .update({ config: { ...cfg, status: 'running', runStartedAt: new Date().toISOString() } })
+    .update({
+      config: {
+        ...cfg,
+        status: 'running',
+        runStartedAt: new Date().toISOString(),
+        pendingSiteIds: siteIds,
+      },
+    })
     .eq('id', scheduleId);
 
   await logEvent({
     teamId, type: 'schedule', level: 'info',
-    message: `Schedule #${scheduleId} run started (inline)`,
-    metadata: { scheduleId, notifySlack: !!cfg.notifySlack, notifyEmail: !!cfg.notifyEmail, notifyAI: !!cfg.notifyAI },
+    message: `Schedule #${scheduleId} dispatching — ${sites.length} worker(s) + delayed notify`,
+    metadata: {
+      scheduleId,
+      sites: sites.length,
+      baseUrl,
+      notifySlack: !!cfg.notifySlack,
+      notifyEmail: !!cfg.notifyEmail,
+      notifyAI: !!cfg.notifyAI,
+    },
   });
 
   try {
-    // PSI API key
-    const { data: psiConfig } = await supabase
-      .from('integrations')
-      .select('config')
-      .eq('team_id', teamId)
-      .eq('type', 'pagespeed')
-      .eq('enabled', true)
-      .maybeSingle();
-    const apiKey = psiConfig?.config?.apiKey || process.env.GOOGLE_PSI_API_KEY;
-    if (!apiKey) throw new Error('No PageSpeed API key configured. Add one in Settings > Integrations.');
+    // Each site → own QStash job → own 60s Vercel function
+    await enqueueBatchScans(siteIds, baseUrl);
 
-    // Sites
-    const { data: sites, error: sitesError } = await supabase
-      .from('sites')
-      .select('id, url, name, team_id, tags, logo_url')
-      .eq('team_id', teamId)
-      .eq('enabled', true);
-    if (sitesError) throw sitesError;
-
-    if (!sites || sites.length === 0) {
-      await supabase
-        .from('integrations')
-        .update({ config: { ...cfg, status: 'completed', completedAt: new Date().toISOString(), note: 'No sites to scan' } })
-        .eq('id', scheduleId);
-      await logEvent({ teamId, type: 'schedule', level: 'warn', message: `Schedule #${scheduleId} has no sites`, metadata: { scheduleId } });
-      return { scheduleId, status: 'completed', sitesScanned: 0 };
-    }
-
-    // Parallel scans with a tight per-call timeout. If a site's PSI can't
-    // return in 40s we accept the partial batch — better than stuck.
-    const scanStart = Date.now();
-    const scanJobs = [];
-    for (const site of sites) {
-      scanJobs.push(scanOne(site, 'mobile', apiKey, teamId));
-      scanJobs.push(scanOne(site, 'desktop', apiKey, teamId));
-    }
-    const scanOutcomes = await Promise.allSettled(scanJobs);
-    const scanMs = Date.now() - scanStart;
-    const okCount = scanOutcomes.filter((o) => o.status === 'fulfilled').length;
-    const failCount = scanOutcomes.filter((o) => o.status === 'rejected').length;
+    // Delayed notify job aggregates results + sends
+    await enqueueNotify({ [teamId]: siteIds }, baseUrl, {
+      notifySlack: cfg.notifySlack,
+      notifyEmail: cfg.notifyEmail,
+      notifyAI: cfg.notifyAI,
+      scheduleId,
+    });
 
     await logEvent({
       teamId, type: 'schedule', level: 'info',
-      message: `Schedule #${scheduleId} scan phase ${scanMs}ms (${okCount} ok, ${failCount} failed)`,
-      metadata: { scheduleId, scanMs, okCount, failCount, sites: sites.length },
+      message: `Schedule #${scheduleId} workers + notify enqueued via QStash`,
+      metadata: { scheduleId, workerCount: siteIds.length },
     });
 
-    if (okCount === 0) {
-      await supabase
-        .from('integrations')
-        .update({
-          config: {
-            ...cfg, status: 'failed',
-            error: `All ${failCount} scan(s) failed. Site may be too slow for PageSpeed API.`,
-            failedAt: new Date().toISOString(),
-          },
-        })
-        .eq('id', scheduleId);
-      await logEvent({
-        teamId, type: 'schedule', level: 'error',
-        message: `Schedule #${scheduleId} failed: all scans errored`,
-        metadata: { scheduleId, scanMs, failCount },
-      });
-      return { scheduleId, status: 'failed', error: 'All scans failed' };
-    }
-
-    // Scans complete — mark 'scanned' and return. The poller will run the
-    // notify phase in a separate function invocation (own 60s budget).
-    const siteIds = sites.map((s) => s.id);
-    await supabase
-      .from('integrations')
-      .update({
-        config: {
-          ...cfg,
-          status: 'scanned',
-          scannedAt: new Date().toISOString(),
-          sitesScanned: okCount,
-          scanFailures: failCount,
-          pendingSiteIds: siteIds,
-        },
-      })
-      .eq('id', scheduleId);
-
-    await logEvent({
-      teamId, type: 'schedule', level: 'info',
-      message: `Schedule #${scheduleId} scan phase complete (${okCount}/${sites.length * 2}) — notify phase queued for next poller tick`,
-      metadata: { scheduleId, okCount, failCount, scanMs, durationMs: Date.now() - fnStart },
-    });
-
-    return { scheduleId, status: 'scanned', sitesScanned: okCount, scanFailures: failCount };
+    return { scheduleId, status: 'dispatched', workers: siteIds.length };
   } catch (err) {
-    console.error(`Schedule ${scheduleId} failed:`, err);
-    await supabase
-      .from('integrations')
-      .update({
-        config: { ...cfg, status: 'failed', error: err.message, failedAt: new Date().toISOString() },
-      })
-      .eq('id', scheduleId);
+    await failSchedule(supabase, schedule, `QStash dispatch failed: ${err.message}`);
     await logEvent({
       teamId, type: 'schedule', level: 'error',
-      message: `Schedule #${scheduleId} failed: ${err.message}`,
-      metadata: { scheduleId, error: err.message, durationMs: Date.now() - fnStart },
+      message: `Schedule #${scheduleId} QStash dispatch failed: ${err.message}`,
+      metadata: { scheduleId, error: err.message, hint: 'Check QSTASH_TOKEN / QSTASH_URL env vars.' },
     });
     return { scheduleId, status: 'failed', error: err.message };
   }
 }
 
-// Scan one (site × strategy). 50s PSI timeout per call — scan phase has
-// the whole function budget (no notify follows in this invocation).
-async function scanOne(site, strategy, apiKey, teamId) {
-  const start = Date.now();
-  try {
-    const result = await runPageSpeedAudit(site.url, strategy, { apiKey, timeoutMs: 50000 });
-
-    await saveScanResult({
-      siteId: site.id,
-      strategy,
-      scores: result.scores,
-      vitals: result.vitals,
-      audits: result.audits,
-    });
-
-    if (strategy === 'mobile') {
-      const now = new Date();
-      const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-      const summary = formatAuditSummary(result.audits);
-      await upsertMonthlySnapshot({
-        siteId: site.id, month, scores: result.scores,
-        counts: { critical: summary.criticalCount, improvement: summary.improvementCount, optional: summary.optionalCount },
-        avgVitals: {
-          fcpMs: result.vitals.fcpMs != null ? Math.round(result.vitals.fcpMs) : null,
-          lcpMs: result.vitals.lcpMs != null ? Math.round(result.vitals.lcpMs) : null,
-        },
-      });
-    }
-
-    await logEvent({
-      teamId, type: 'scan', level: 'info',
-      message: `Scanned ${site.name} (${strategy}) — perf ${result.scores.performance}`,
-      metadata: { siteId: site.id, strategy, scores: result.scores, durationMs: Date.now() - start },
-    });
-    return { siteId: site.id, strategy };
-  } catch (err) {
-    await logEvent({
-      teamId, type: 'scan', level: 'error',
-      message: `Scan failed for ${site.name} (${strategy}): ${err.message}`,
-      metadata: { siteId: site.id, strategy, error: err.message, durationMs: Date.now() - start },
-    });
-    throw err;
-  }
-}
-
-// Phase 2: runs notify pipeline for a schedule that finished scanning.
-// Own function invocation (from the poller) → own 60s budget.
-async function runNotifyPhase(supabase, schedule) {
-  const scheduleId = schedule.id;
-  const teamId = schedule.team_id;
-  const cfg = schedule.config || {};
-  const siteIds = Array.isArray(cfg.pendingSiteIds) ? cfg.pendingSiteIds : [];
-
-  if (siteIds.length === 0) {
-    await supabase
-      .from('integrations')
-      .update({ config: { ...cfg, status: 'completed', completedAt: new Date().toISOString() } })
-      .eq('id', scheduleId);
-    return;
-  }
-
-  const start = Date.now();
-  try {
-    // runNotifyPipeline marks the schedule 'completed' when it finishes
-    await runNotifyPipeline(
-      { [teamId]: siteIds },
-      {
-        notifySlack: cfg.notifySlack,
-        notifyEmail: cfg.notifyEmail,
-        notifyAI: cfg.notifyAI,
-        scheduleId,
-      }
-    );
-    await logEvent({
-      teamId, type: 'schedule', level: 'info',
-      message: `Schedule #${scheduleId} notify phase complete in ${Date.now() - start}ms`,
-      metadata: { scheduleId, notifyMs: Date.now() - start, sitesNotified: siteIds.length },
-    });
-  } catch (err) {
-    await supabase
-      .from('integrations')
-      .update({
-        config: {
-          ...cfg, status: 'completed',
-          completedAt: new Date().toISOString(),
-          notifyError: err.message,
-        },
-      })
-      .eq('id', scheduleId);
-    await logEvent({
-      teamId, type: 'schedule', level: 'error',
-      message: `Schedule #${scheduleId} notify failed: ${err.message}`,
-      metadata: { scheduleId, error: err.message },
-    });
-  }
-}
-
-// Called by the 60s poller when a schedule has been 'running' for > 90s.
-// Runs notify inline if fresh scan_results exist since runStartedAt;
-// otherwise marks failed.
+// Fallback: poller invokes this for schedules stuck > 3 min. Runs notify
+// pipeline inline using whatever scan_results are in DB so the schedule
+// doesn't stay running forever when QStash notify delivery fails.
 async function recoverStuckSchedule(supabase, schedule) {
   const scheduleId = schedule.id;
   const teamId = schedule.team_id;
@@ -348,11 +209,6 @@ async function recoverStuckSchedule(supabase, schedule) {
     const siteIds = (sites || []).map((s) => s.id);
     if (siteIds.length === 0) {
       await failSchedule(supabase, schedule, 'Stuck with no enabled sites.');
-      await logEvent({
-        teamId, type: 'schedule', level: 'error',
-        message: `Reclaimed stuck schedule #${scheduleId} — no sites`,
-        metadata: { scheduleId, runStartedAt },
-      });
       return;
     }
 
@@ -365,18 +221,22 @@ async function recoverStuckSchedule(supabase, schedule) {
       .limit(1);
 
     if (!freshResults || freshResults.length === 0) {
-      await failSchedule(supabase, schedule, 'No scan results produced — function likely died mid-scan. Click Retry.');
+      await failSchedule(
+        supabase,
+        schedule,
+        'No scan results produced within 3 min. QStash workers may not have run — check Logs for sig-verify errors.'
+      );
       await logEvent({
         teamId, type: 'schedule', level: 'error',
-        message: `Reclaimed stuck schedule #${scheduleId} — no fresh scan results`,
-        metadata: { scheduleId, runStartedAt, since },
+        message: `Reclaimed stuck schedule #${scheduleId} — no fresh scan results after 3 min`,
+        metadata: { scheduleId, runStartedAt, since, hint: 'Look for "QStash sig verify failed" entries around this time.' },
       });
       return;
     }
 
     await logEvent({
       teamId, type: 'schedule', level: 'warn',
-      message: `Recovering stuck schedule #${scheduleId} via inline notify`,
+      message: `Recovering stuck schedule #${scheduleId} — running notify inline (QStash notify didn't fire)`,
       metadata: { scheduleId, runStartedAt },
     });
 
@@ -407,6 +267,18 @@ async function failSchedule(supabase, schedule, errorMsg) {
       config: { ...cfg, status: 'failed', error: errorMsg, failedAt: new Date().toISOString() },
     })
     .eq('id', schedule.id);
+}
+
+function getPublicBaseUrl(request) {
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  const host = request?.headers?.get?.('host');
+  if (host) return `${host.includes('localhost') ? 'http' : 'https'}://${host}`;
+  return null;
 }
 
 async function handleRecurrence(supabase, schedule) {
@@ -449,4 +321,18 @@ async function handleRecurrence(supabase, schedule) {
     message: `Next occurrence #${newSchedule.id} scheduled for ${next.toISOString()}`,
     metadata: { newScheduleId: newSchedule.id, frequency },
   });
+
+  try {
+    const { enqueueScheduleFire } = await import('@/lib/queue');
+    const baseUrl = getPublicBaseUrl();
+    if (baseUrl && newSchedule) {
+      await enqueueScheduleFire(newSchedule.id, next, baseUrl);
+    }
+  } catch (err) {
+    await logEvent({
+      teamId: schedule.team_id, type: 'schedule', level: 'error',
+      message: `QStash auto-fire failed for recurring schedule #${newSchedule.id}: ${err.message}`,
+      metadata: { scheduleId: newSchedule.id, error: err.message },
+    });
+  }
 }

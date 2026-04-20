@@ -3,23 +3,35 @@ import { verifyQStashSignature } from '@/lib/queue';
 import { saveScanResult, upsertMonthlySnapshot, getPreviousSnapshot } from '@/lib/db';
 import { runFullAudit, detectRegression, formatAuditSummary } from '@/lib/pagespeed';
 import { createServiceSupabase } from '@/lib/supabase';
+import { logEvent } from '@/lib/logs';
 
 // POST /api/scan/worker
-// Called by QStash — scans a single site (mobile + desktop)
+// Called by QStash — scans a single site (mobile + desktop) in its own 60s budget.
 export async function POST(request) {
   let body;
 
   try {
     body = await verifyQStashSignature(request);
   } catch (error) {
-    console.error('QStash verification failed:', error.message);
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Visibly log sig failures so they appear in /logs instead of vanishing
+    await logEvent({
+      teamId: null,
+      type: 'scan',
+      level: 'error',
+      message: `QStash sig verify failed at /api/scan/worker: ${error.message}`,
+      metadata: { error: error.message, hint: 'Check QSTASH_CURRENT_SIGNING_KEY / QSTASH_NEXT_SIGNING_KEY in Vercel env match your Upstash project.' },
+    }).catch(() => {});
+    return NextResponse.json({ error: 'Unauthorized', details: error.message }, { status: 401 });
   }
 
   const { siteId } = body;
   if (!siteId) {
     return NextResponse.json({ error: 'Missing siteId' }, { status: 400 });
   }
+
+  const workerStart = Date.now();
+  let siteTeamId = null;
+  let siteName = `#${siteId}`;
 
   try {
     // Fetch site details using service role (worker has no user session)
@@ -33,6 +45,14 @@ export async function POST(request) {
     if (siteError || !site) {
       return NextResponse.json({ error: 'Site not found' }, { status: 404 });
     }
+    siteTeamId = site.team_id;
+    siteName = site.name;
+
+    await logEvent({
+      teamId: site.team_id, type: 'scan', level: 'info',
+      message: `Worker started for ${site.name}`,
+      metadata: { siteId: site.id, siteName: site.name },
+    });
 
     // Get team's PageSpeed API key from integrations (fall back to env var)
     const { data: psiConfig } = await supabase
@@ -91,6 +111,12 @@ export async function POST(request) {
     const previousSnapshot = await getPreviousSnapshot(site.id, month);
     const regressions = detectRegression(mobile.scores, previousSnapshot);
 
+    await logEvent({
+      teamId: site.team_id, type: 'scan', level: 'info',
+      message: `Worker completed for ${site.name} in ${Date.now() - workerStart}ms — mobile perf ${mobile.scores.performance}, desktop perf ${desktop.scores.performance}`,
+      metadata: { siteId: site.id, siteName: site.name, durationMs: Date.now() - workerStart, mobile: mobile.scores, desktop: desktop.scores },
+    });
+
     return NextResponse.json({
       success: true,
       siteId: site.id,
@@ -101,6 +127,11 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error(`Scan worker error for site ${siteId}:`, error);
+    await logEvent({
+      teamId: siteTeamId, type: 'scan', level: 'error',
+      message: `Worker failed for ${siteName}: ${error.message}`,
+      metadata: { siteId, error: error.message, durationMs: Date.now() - workerStart },
+    });
     return NextResponse.json(
       { error: 'Scan failed', siteId, details: error.message },
       { status: 500 }
