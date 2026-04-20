@@ -278,21 +278,44 @@ async function failSchedule(supabase, schedule, errorMsg) {
 }
 
 function getPublicBaseUrl(request) {
-  // NEXT_PUBLIC_SITE_URL wins — production alias, publicly reachable.
+  // 1. Manual override — user-set, always wins.
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
   }
-  // Next: the actual request host. When QStash hits us at the production
-  // alias, this is the production alias. Falls back correctly in local dev.
+  // 2. Vercel's auto-set production URL. This is always the production
+  // alias (e.g. webpulse-phi.vercel.app), NEVER the protected deployment
+  // URL (webpulse-<hash>.vercel.app). Available on Vercel deployments
+  // without any user configuration.
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  // 3. request.host — works if QStash delivered to the production alias.
+  // But if the current request arrived at a preview URL, using it here
+  // would feed QStash another protected URL. Detect and skip preview URLs.
   const host = request?.headers?.get?.('host');
-  if (host) return `${host.includes('localhost') ? 'http' : 'https'}://${host}`;
-  // Last resort: VERCEL_URL. This is the deployment-specific URL which
-  // has Vercel Deployment Protection enabled by default, so QStash
-  // callbacks to it get 401'd. Only used if neither of the above work.
+  if (host && !looksLikePreviewUrl(host)) {
+    return `${host.includes('localhost') ? 'http' : 'https'}://${host}`;
+  }
+  // 4. Localhost dev.
+  if (host?.includes('localhost')) return `http://${host}`;
+  // 5. Last resort. VERCEL_URL is always the deployment-specific URL
+  // which has Vercel Deployment Protection enabled — callbacks to it
+  // return SSO HTML, not our handler. Use only if nothing else works.
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
   return null;
+}
+
+// Vercel preview deployment URLs look like:
+//   <project>-<random-hash>-<org-slug>.vercel.app  e.g. webpulse-n0idobgrw-pials-projects-xyz.vercel.app
+// Production aliases are shorter: webpulse-phi.vercel.app
+// Heuristic: a host that ends in .vercel.app AND has >= 4 dash-separated
+// segments in the subdomain is almost certainly a preview URL.
+function looksLikePreviewUrl(host) {
+  if (!host?.endsWith('.vercel.app')) return false;
+  const sub = host.slice(0, -'.vercel.app'.length);
+  return sub.split('-').length >= 4;
 }
 
 async function handleRecurrence(supabase, schedule) {

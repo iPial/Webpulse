@@ -147,13 +147,25 @@ export async function POST(request) {
 }
 
 function getBaseUrl(request) {
-  // Prefer explicit env var for production (avoids Vercel preview URL issues)
+  // Same priority as /api/schedules/run — avoid protected preview URLs.
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
   }
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
   const host = request.headers.get('host');
-  const protocol = host?.includes('localhost') ? 'http' : 'https';
-  return `${protocol}://${host}`;
+  if (host && !isVercelPreviewHost(host)) {
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    return `${protocol}://${host}`;
+  }
+  if (host?.includes('localhost')) return `http://${host}`;
+  return process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
+}
+
+function isVercelPreviewHost(host) {
+  if (!host?.endsWith('.vercel.app')) return false;
+  return host.slice(0, -'.vercel.app'.length).split('-').length >= 4;
 }
 
 // PATCH /api/schedules
