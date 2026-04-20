@@ -57,13 +57,19 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
 
     // If nothing fresh, don't send a misleading "here are your scores" message
     if (!results || results.length === 0) {
+      const errorMsg =
+        'PageSpeed API did not finish in Vercel Hobby\'s 60s function limit. ' +
+        'Google\'s PSI genuinely takes 60-90s for heavy WordPress sites. ' +
+        'Fixes: (1) Upgrade to Vercel Pro for 300s functions; ' +
+        '(2) Use manual "Scan Now" on each site (separate function budget); ' +
+        '(3) Scan simpler sites per schedule.';
+
       await logEvent({
-        teamId, type: 'notification', level: 'warn',
-        message: `Skipping notifications — no fresh scan results in the last 10 min (all workers may have timed out).`,
-        metadata: { scheduleId, siteIds },
+        teamId, type: 'notification', level: 'error',
+        message: `Schedule #${scheduleId}: no fresh scan results — all PSI calls exceeded 60s`,
+        metadata: { scheduleId, siteIds, recommendation: 'Upgrade Vercel to Pro, or use manual scans.' },
       });
-      // Mark schedule failed so the user knows what happened, instead of
-      // completing it silently with stale data.
+
       if (scheduleId) {
         const { data: sch } = await supabase.from('integrations').select('config').eq('id', scheduleId).single();
         if (sch) {
@@ -73,7 +79,7 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
               config: {
                 ...sch.config,
                 status: 'failed',
-                error: 'All scan workers timed out. PageSpeed API too slow for these sites — try fewer parallel scans or upgrade Vercel function budget.',
+                error: errorMsg,
                 failedAt: new Date().toISOString(),
               },
             })
