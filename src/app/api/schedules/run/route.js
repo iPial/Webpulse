@@ -39,9 +39,20 @@ export async function POST(request) {
       if (error) throw error;
 
       const now = new Date();
-      // Recover schedules stuck for > 90s (from older code paths or partial
-      // runs). If fresh scan_results exist since runStartedAt we notify
-      // inline; otherwise mark failed. See recoverStuckSchedule below.
+
+      // Phase 2 work: schedules that have completed their scan phase but
+      // haven't been notified yet. Poller picks these up and runs the
+      // notify pipeline inline (its own function invocation = own budget).
+      const awaitingNotify = (data || []).filter((s) => {
+        const cfg = s.config || {};
+        return cfg.status === 'scanned';
+      });
+      for (const s of awaitingNotify) {
+        await runNotifyPhase(supabase, s);
+      }
+
+      // Recovery: schedules stuck in 'running' for > 90s (scan phase died
+      // mid-run). Try to recover from any fresh scan_results.
       const recoverCutoffMs = now.getTime() - 90 * 1000;
       const stuck = (data || []).filter((s) => {
         const cfg = s.config || {};
@@ -93,12 +104,13 @@ export async function POST(request) {
   }
 }
 
-// Fully-inline pipeline. Budget (targeting 55s):
-//   - Scan phase (parallel PSI, 40s cap per call)      → ~40s worst
-//   - Notify phase (runNotifyPipeline, Promise.race 12s) → ~12s worst
-//   - DB bookkeeping                                   → ~2s
-// Total worst: ~54s. AI is run inside runNotifyPipeline only if schedule
-// has notifyAI AND we reach notify with enough headroom.
+// Two-phase pipeline:
+//   Phase 1 (this function): scans only. 50s PSI timeout per call is
+//       viable because no notify runs after. On completion, status is
+//       set to 'scanned'. Function returns around 50s.
+//   Phase 2: when the poller sees status='scanned', it runs
+//       runNotifyPhase() in a separate function invocation (its own
+//       60s budget) — sends Slack/email + marks 'completed'.
 async function runScheduleInline(supabase, schedule) {
   const scheduleId = schedule.id;
   const teamId = schedule.team_id;
@@ -170,7 +182,7 @@ async function runScheduleInline(supabase, schedule) {
         .update({
           config: {
             ...cfg, status: 'failed',
-            error: `All ${failCount} scan(s) failed. Check PSI API key and site URLs.`,
+            error: `All ${failCount} scan(s) failed. Site may be too slow for PageSpeed API.`,
             failedAt: new Date().toISOString(),
           },
         })
@@ -183,67 +195,30 @@ async function runScheduleInline(supabase, schedule) {
       return { scheduleId, status: 'failed', error: 'All scans failed' };
     }
 
-    // Notify pipeline — reads fresh scan_results from DB, runs AI if
-    // notifyAI is set AND we have time, sends Slack/email, marks completed.
-    // Wrapped in Promise.race with a 15s hard cap so a stuck webhook can't
-    // eat the remaining budget.
-    const elapsed = Date.now() - fnStart;
-    const notifyBudgetMs = Math.min(15000, Math.max(5000, 58000 - elapsed));
+    // Scans complete — mark 'scanned' and return. The poller will run the
+    // notify phase in a separate function invocation (own 60s budget).
     const siteIds = sites.map((s) => s.id);
+    await supabase
+      .from('integrations')
+      .update({
+        config: {
+          ...cfg,
+          status: 'scanned',
+          scannedAt: new Date().toISOString(),
+          sitesScanned: okCount,
+          scanFailures: failCount,
+          pendingSiteIds: siteIds,
+        },
+      })
+      .eq('id', scheduleId);
 
-    // Budget guard: only run AI inside the notify call if we have > 22s left
-    // (AI parallel per site can take up to 18s; leave 4s for Slack/email).
-    const hasAIBudget = (58000 - elapsed) > 22000;
-    const effectiveNotifyAI = !!cfg.notifyAI && hasAIBudget;
+    await logEvent({
+      teamId, type: 'schedule', level: 'info',
+      message: `Schedule #${scheduleId} scan phase complete (${okCount}/${sites.length * 2}) — notify phase queued for next poller tick`,
+      metadata: { scheduleId, okCount, failCount, scanMs, durationMs: Date.now() - fnStart },
+    });
 
-    const notifyStart = Date.now();
-    try {
-      await Promise.race([
-        runNotifyPipeline(
-          { [teamId]: siteIds },
-          {
-            notifySlack: cfg.notifySlack,
-            notifyEmail: cfg.notifyEmail,
-            notifyAI: effectiveNotifyAI,
-            scheduleId,
-          }
-        ),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`notify phase exceeded ${notifyBudgetMs}ms`)), notifyBudgetMs)
-        ),
-      ]);
-
-      // runNotifyPipeline already marks the schedule completed when it
-      // finishes, so we're done.
-      await logEvent({
-        teamId, type: 'schedule', level: 'info',
-        message: `Schedule #${scheduleId} notify phase ${Date.now() - notifyStart}ms (AI ${effectiveNotifyAI ? 'on' : 'skipped'})`,
-        metadata: { scheduleId, notifyMs: Date.now() - notifyStart, aiRan: effectiveNotifyAI },
-      });
-
-      return { scheduleId, status: 'completed', sitesScanned: okCount, scanFailures: failCount };
-    } catch (notifyErr) {
-      // Notify failed but scans succeeded. Mark completed anyway so the
-      // schedule isn't stuck — Slack/email just didn't go out this time.
-      await supabase
-        .from('integrations')
-        .update({
-          config: {
-            ...cfg, status: 'completed',
-            completedAt: new Date().toISOString(),
-            notifyError: notifyErr.message,
-            sitesScanned: okCount,
-            scanFailures: failCount,
-          },
-        })
-        .eq('id', scheduleId);
-      await logEvent({
-        teamId, type: 'schedule', level: 'error',
-        message: `Schedule #${scheduleId} completed with notify error: ${notifyErr.message}`,
-        metadata: { scheduleId, error: notifyErr.message },
-      });
-      return { scheduleId, status: 'completed', notifyError: notifyErr.message };
-    }
+    return { scheduleId, status: 'scanned', sitesScanned: okCount, scanFailures: failCount };
   } catch (err) {
     console.error(`Schedule ${scheduleId} failed:`, err);
     await supabase
@@ -261,11 +236,12 @@ async function runScheduleInline(supabase, schedule) {
   }
 }
 
-// Scan one (site × strategy). 40s PSI timeout per call. Save result + snapshot.
+// Scan one (site × strategy). 50s PSI timeout per call — scan phase has
+// the whole function budget (no notify follows in this invocation).
 async function scanOne(site, strategy, apiKey, teamId) {
   const start = Date.now();
   try {
-    const result = await runPageSpeedAudit(site.url, strategy, { apiKey, timeoutMs: 40000 });
+    const result = await runPageSpeedAudit(site.url, strategy, { apiKey, timeoutMs: 50000 });
 
     await saveScanResult({
       siteId: site.id,
@@ -302,6 +278,58 @@ async function scanOne(site, strategy, apiKey, teamId) {
       metadata: { siteId: site.id, strategy, error: err.message, durationMs: Date.now() - start },
     });
     throw err;
+  }
+}
+
+// Phase 2: runs notify pipeline for a schedule that finished scanning.
+// Own function invocation (from the poller) → own 60s budget.
+async function runNotifyPhase(supabase, schedule) {
+  const scheduleId = schedule.id;
+  const teamId = schedule.team_id;
+  const cfg = schedule.config || {};
+  const siteIds = Array.isArray(cfg.pendingSiteIds) ? cfg.pendingSiteIds : [];
+
+  if (siteIds.length === 0) {
+    await supabase
+      .from('integrations')
+      .update({ config: { ...cfg, status: 'completed', completedAt: new Date().toISOString() } })
+      .eq('id', scheduleId);
+    return;
+  }
+
+  const start = Date.now();
+  try {
+    // runNotifyPipeline marks the schedule 'completed' when it finishes
+    await runNotifyPipeline(
+      { [teamId]: siteIds },
+      {
+        notifySlack: cfg.notifySlack,
+        notifyEmail: cfg.notifyEmail,
+        notifyAI: cfg.notifyAI,
+        scheduleId,
+      }
+    );
+    await logEvent({
+      teamId, type: 'schedule', level: 'info',
+      message: `Schedule #${scheduleId} notify phase complete in ${Date.now() - start}ms`,
+      metadata: { scheduleId, notifyMs: Date.now() - start, sitesNotified: siteIds.length },
+    });
+  } catch (err) {
+    await supabase
+      .from('integrations')
+      .update({
+        config: {
+          ...cfg, status: 'completed',
+          completedAt: new Date().toISOString(),
+          notifyError: err.message,
+        },
+      })
+      .eq('id', scheduleId);
+    await logEvent({
+      teamId, type: 'schedule', level: 'error',
+      message: `Schedule #${scheduleId} notify failed: ${err.message}`,
+      metadata: { scheduleId, error: err.message },
+    });
   }
 }
 

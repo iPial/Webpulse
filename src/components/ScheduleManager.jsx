@@ -12,8 +12,13 @@ const FREQUENCY_OPTIONS = [
 const STATUS_STYLES = {
   pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
   running: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  scanned: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
   completed: 'bg-green-500/10 text-green-400 border-green-500/20',
   failed: 'bg-red-500/10 text-red-400 border-red-500/20',
+};
+
+const STATUS_LABELS = {
+  scanned: 'Finalizing',
 };
 
 function getDefaultDatetime() {
@@ -383,7 +388,7 @@ function ScheduleRow({ schedule, onDelete, onRunNow, onReset }) {
             {formatLocalTime(config.scheduledAt)}
           </span>
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusStyle}`}>
-            {status.charAt(0).toUpperCase() + status.slice(1)}
+            {STATUS_LABELS[status] || (status.charAt(0).toUpperCase() + status.slice(1))}
           </span>
           <span className="text-xs text-gray-500 capitalize">
             {config.frequency || 'once'}
