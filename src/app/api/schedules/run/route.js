@@ -278,14 +278,20 @@ async function failSchedule(supabase, schedule, errorMsg) {
 }
 
 function getPublicBaseUrl(request) {
+  // NEXT_PUBLIC_SITE_URL wins — production alias, publicly reachable.
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
   }
+  // Next: the actual request host. When QStash hits us at the production
+  // alias, this is the production alias. Falls back correctly in local dev.
+  const host = request?.headers?.get?.('host');
+  if (host) return `${host.includes('localhost') ? 'http' : 'https'}://${host}`;
+  // Last resort: VERCEL_URL. This is the deployment-specific URL which
+  // has Vercel Deployment Protection enabled by default, so QStash
+  // callbacks to it get 401'd. Only used if neither of the above work.
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
-  const host = request?.headers?.get?.('host');
-  if (host) return `${host.includes('localhost') ? 'http' : 'https'}://${host}`;
   return null;
 }
 
