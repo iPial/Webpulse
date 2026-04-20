@@ -26,9 +26,12 @@ export async function runPageSpeedAudit(url, strategy = 'mobile', { apiKey: over
   return parseResponse(data);
 }
 
-// Run both mobile and desktop audits for a site
-export async function runFullAudit(url, { apiKey } = {}) {
-  const opts = apiKey ? { apiKey } : {};
+// Run both mobile and desktop audits for a site.
+// Default 50s per strategy — PSI is slow for heavy sites (LCP 10s+). Worker
+// is its own Vercel function with a 60s budget; 50s fits with room to save
+// results. Callers can override via { timeoutMs } if they have a tighter budget.
+export async function runFullAudit(url, { apiKey, timeoutMs = 50000 } = {}) {
+  const opts = apiKey ? { apiKey, timeoutMs } : { timeoutMs };
   const [mobile, desktop] = await Promise.all([
     runPageSpeedAudit(url, 'mobile', opts),
     runPageSpeedAudit(url, 'desktop', opts),

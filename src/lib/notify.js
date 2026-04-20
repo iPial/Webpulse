@@ -32,11 +32,17 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
   const supabase = createServiceSupabase();
   const notificationsSent = [];
 
+  // Only look at scan_results from the last 10 minutes so we don't
+  // aggregate stale data from a previous run (the classic "notify sent
+  // but sites show old scores" bug when all workers time out).
+  const freshSinceIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
   for (const [teamId, siteIds] of Object.entries(teamSiteMap)) {
     const { data: results, error: resultsError } = await supabase
       .from('scan_results')
       .select('*, sites (id, name, url, team_id, tags, logo_url)')
       .in('site_id', siteIds)
+      .gte('scanned_at', freshSinceIso)
       .order('scanned_at', { ascending: false })
       .limit(siteIds.length * 4);
 
@@ -46,6 +52,34 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
         message: `Failed to fetch scan results: ${resultsError.message}`,
         metadata: { scheduleId, error: resultsError.message },
       });
+      continue;
+    }
+
+    // If nothing fresh, don't send a misleading "here are your scores" message
+    if (!results || results.length === 0) {
+      await logEvent({
+        teamId, type: 'notification', level: 'warn',
+        message: `Skipping notifications — no fresh scan results in the last 10 min (all workers may have timed out).`,
+        metadata: { scheduleId, siteIds },
+      });
+      // Mark schedule failed so the user knows what happened, instead of
+      // completing it silently with stale data.
+      if (scheduleId) {
+        const { data: sch } = await supabase.from('integrations').select('config').eq('id', scheduleId).single();
+        if (sch) {
+          await supabase
+            .from('integrations')
+            .update({
+              config: {
+                ...sch.config,
+                status: 'failed',
+                error: 'All scan workers timed out. PageSpeed API too slow for these sites — try fewer parallel scans or upgrade Vercel function budget.',
+                failedAt: new Date().toISOString(),
+              },
+            })
+            .eq('id', scheduleId);
+        }
+      }
       continue;
     }
 
