@@ -4,15 +4,17 @@ const PSI_API_URL = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
 // Core API Call
 // ============================================
 
-export async function runPageSpeedAudit(url, strategy = 'mobile', { apiKey: overrideKey } = {}) {
+export async function runPageSpeedAudit(url, strategy = 'mobile', { apiKey: overrideKey, timeoutMs = 35000 } = {}) {
   const apiKey = overrideKey || process.env.GOOGLE_PSI_API_KEY;
   if (!apiKey) throw new Error('No PageSpeed API key configured. Add one in Settings > Integrations.');
 
   // PSI API expects multiple category params
   const categoryUrl = `${PSI_API_URL}?url=${encodeURIComponent(url)}&key=${apiKey}&strategy=${strategy}&category=performance&category=accessibility&category=best-practices&category=seo`;
 
+  // Default 35s; scheduled runs can pass a tighter timeout so one slow site
+  // can't eat the Vercel 60s function budget.
   const response = await fetch(categoryUrl, {
-    signal: AbortSignal.timeout(60000), // 60s timeout
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {

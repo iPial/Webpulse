@@ -195,9 +195,19 @@ async function runScheduleInline(supabase, schedule) {
       scanJobs.push(scanSiteStrategy(site, 'desktop', apiKey, teamId));
     }
 
+    const scanPhaseStart = Date.now();
     const scanResults = await Promise.allSettled(scanJobs);
+    const scanPhaseMs = Date.now() - scanPhaseStart;
     const succeeded = scanResults.filter((r) => r.status === 'fulfilled').length;
     const failed = scanResults.filter((r) => r.status === 'rejected').length;
+
+    await logEvent({
+      teamId,
+      type: 'schedule',
+      level: 'info',
+      message: `Schedule #${scheduleId} scan phase done in ${scanPhaseMs}ms (${succeeded} ok, ${failed} failed)`,
+      metadata: { scheduleId, scanPhaseMs, succeeded, failed, sites: sites.length },
+    });
 
     const successfulScans = scanResults
       .filter((r) => r.status === 'fulfilled')
@@ -217,38 +227,55 @@ async function runScheduleInline(supabase, schedule) {
     // Detect regressions
     const regressions = await detectAllRegressions(supabase, siteResults);
 
-    // Optionally run AI — but only if we have budget left. Vercel's 60s
-    // function limit means a long scan can leave too little time for AI +
-    // notifications. We reserve 20s for notifications and only run AI if
-    // we still have at least 25s beyond that.
+    // Budget: Vercel Hobby = 60s. Reserve 12s for notify + DB writes at the
+    // end. So AI is allowed only if we have ≥ 20s of runtime left.
     let aiSummariesBySiteId = null;
     let aiSkipped = false;
     if (cfg.notifyAI) {
       const elapsed = Date.now() - startedAt;
-      // Function budget ~55s; leave 20s for notify+DB writes → AI must
-      // start with at least 25s of actual runtime left.
-      const budgetRemaining = 55000 - elapsed;
-      if (budgetRemaining < 25000) {
+      const budgetRemaining = 58000 - elapsed - 12000; // total - elapsed - reserved
+      if (budgetRemaining < 20000) {
         aiSkipped = true;
         await logEvent({
           teamId,
           type: 'ai',
           level: 'warn',
-          message: `Schedule #${scheduleId}: skipped AI — only ${budgetRemaining}ms of function budget left (need 25s). Scan took too long this run.`,
+          message: `Schedule #${scheduleId}: skipped AI — only ${budgetRemaining}ms of runtime left (need 20s). Scans took too long this run.`,
           metadata: { scheduleId, elapsedMs: elapsed, budgetRemaining },
         });
       } else {
+        const aiStart = Date.now();
         aiSummariesBySiteId = await runCompactAIForSites(teamId, siteResults);
+        await logEvent({
+          teamId,
+          type: 'schedule',
+          level: 'info',
+          message: `Schedule #${scheduleId} AI phase done in ${Date.now() - aiStart}ms`,
+          metadata: { scheduleId, aiPhaseMs: Date.now() - aiStart, aiSites: Object.keys(aiSummariesBySiteId || {}).length },
+        });
       }
     }
 
-    // Send notifications
+    // Send notifications with a hard 10s cap so a hung webhook can't prevent
+    // us from marking the schedule completed.
+    const notifyStart = Date.now();
     const baseUrl = getPublicBaseUrl();
-    const notifications = await sendNotifications(supabase, teamId, siteResults, regressions, {
-      notifySlack: cfg.notifySlack,
-      notifyEmail: cfg.notifyEmail,
-      baseUrl,
-      aiSummariesBySiteId,
+    const notifications = await Promise.race([
+      sendNotifications(supabase, teamId, siteResults, regressions, {
+        notifySlack: cfg.notifySlack,
+        notifyEmail: cfg.notifyEmail,
+        baseUrl,
+        aiSummariesBySiteId,
+      }),
+      new Promise((resolve) => setTimeout(() => resolve(['notify-timeout-10s']), 10000)),
+    ]);
+
+    await logEvent({
+      teamId,
+      type: 'schedule',
+      level: 'info',
+      message: `Schedule #${scheduleId} notify phase done in ${Date.now() - notifyStart}ms`,
+      metadata: { scheduleId, notifyPhaseMs: Date.now() - notifyStart, notifications },
     });
 
     // Mark completed
@@ -309,11 +336,12 @@ async function runScheduleInline(supabase, schedule) {
   }
 }
 
-// Scan one site × strategy, save result, return the scan data
+// Scan one site × strategy, save result, return the scan data.
+// Tight 30s PSI timeout so a slow site can't eat the whole 60s budget.
 async function scanSiteStrategy(site, strategy, apiKey, teamId) {
   const startedAt = Date.now();
   try {
-    const result = await runPageSpeedAudit(site.url, strategy, { apiKey });
+    const result = await runPageSpeedAudit(site.url, strategy, { apiKey, timeoutMs: 30000 });
 
     await saveScanResult({
       siteId: site.id,

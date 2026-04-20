@@ -42,9 +42,10 @@ async function analyzeOneSite(teamId, provider, apiKey, siteId, site, mobile, pe
   const startedAt = Date.now();
   try {
     const prompt = buildCompactPrompt(site, mobile);
-    // Per-site cap: 40s. With parallel sites this still fits inside the
-    // function's max duration; a stuck provider call can't stall the batch.
-    const text = await callAIProvider(provider, apiKey, prompt, 2500, { timeoutMs: 40000 });
+    // Per-site cap: 18s. Parallel across sites, so total AI phase is ~18s
+    // regardless of how many sites. Tight to fit in the Vercel 60s budget
+    // after scans. A stuck provider call aborts; the schedule still completes.
+    const text = await callAIProvider(provider, apiKey, prompt, 2000, { timeoutMs: 18000 });
     const parsed = parseCompactResponse(text);
     if (!parsed) {
       await logEvent({
