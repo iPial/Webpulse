@@ -4,7 +4,7 @@ const PSI_API_URL = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
 // Core API Call
 // ============================================
 
-export async function runPageSpeedAudit(url, strategy = 'mobile', { apiKey: overrideKey, timeoutMs = 35000 } = {}) {
+export async function runPageSpeedAudit(url, strategy = 'mobile', { apiKey: overrideKey, timeoutMs = 55000 } = {}) {
   const apiKey = overrideKey || process.env.GOOGLE_PSI_API_KEY;
   if (!apiKey) throw new Error('No PageSpeed API key configured. Add one in Settings > Integrations.');
 
@@ -27,10 +27,9 @@ export async function runPageSpeedAudit(url, strategy = 'mobile', { apiKey: over
 }
 
 // Run both mobile and desktop audits for a site.
-// Default 50s per strategy — PSI is slow for heavy sites (LCP 10s+). Worker
-// is its own Vercel function with a 60s budget; 50s fits with room to save
-// results. Callers can override via { timeoutMs } if they have a tighter budget.
-export async function runFullAudit(url, { apiKey, timeoutMs = 50000 } = {}) {
+// 55s per strategy; both run in parallel so the pair finishes in max(mobile, desktop)
+// ≤ 55s. Worker has its own 60s Vercel function budget. 5s left for DB save.
+export async function runFullAudit(url, { apiKey, timeoutMs = 55000 } = {}) {
   const opts = apiKey ? { apiKey, timeoutMs } : { timeoutMs };
   const [mobile, desktop] = await Promise.all([
     runPageSpeedAudit(url, 'mobile', opts),
