@@ -5,7 +5,14 @@ import { createServerClient } from '@supabase/ssr';
 const publicRoutes = ['/login', '/auth/callback'];
 
 // Routes that use their own auth (cron secret, QStash signature)
-const serviceRoutes = ['/api/scan/trigger', '/api/scan/worker', '/api/scan/notify', '/api/webhook'];
+const serviceRoutes = [
+  '/api/scan/trigger',
+  '/api/scan/worker',
+  '/api/scan/notify',
+  '/api/webhook',
+  '/api/schedules/run', // Called by QStash (no session cookie) + logged-in UI
+  '/api/logs/ping',     // Called by the diagnostic QStash job
+];
 
 export async function middleware(request) {
   const { pathname } = request.nextUrl;

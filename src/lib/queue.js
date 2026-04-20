@@ -62,6 +62,7 @@ export async function enqueueNotify(teamSiteMap, baseUrl, scheduleOptions = {}) 
   // Pass schedule notification preferences if provided
   if (scheduleOptions.notifySlack !== undefined) body.notifySlack = scheduleOptions.notifySlack;
   if (scheduleOptions.notifyEmail !== undefined) body.notifyEmail = scheduleOptions.notifyEmail;
+  if (scheduleOptions.notifyAI !== undefined) body.notifyAI = scheduleOptions.notifyAI;
   if (scheduleOptions.scheduleId) body.scheduleId = scheduleOptions.scheduleId;
 
   const result = await client.publishJSON({

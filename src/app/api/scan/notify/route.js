@@ -5,6 +5,8 @@ import { createServiceSupabase } from '@/lib/supabase';
 import { detectRegression } from '@/lib/pagespeed';
 import { sendSlackMessage, buildDailySummary, buildDailySummaryText } from '@/lib/slack';
 import { sendReportEmail, buildReportHTML } from '@/lib/email';
+import { runCompactAIForSites } from '@/lib/ai-batch';
+import { logEvent } from '@/lib/logs';
 
 // POST /api/scan/notify
 // Called by QStash after scan jobs complete
@@ -20,7 +22,13 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { teamSiteMap, notifySlack: scheduleNotifySlack, notifyEmail: scheduleNotifyEmail, scheduleId } = body;
+  const {
+    teamSiteMap,
+    notifySlack: scheduleNotifySlack,
+    notifyEmail: scheduleNotifyEmail,
+    notifyAI: scheduleNotifyAI,
+    scheduleId,
+  } = body;
   if (!teamSiteMap) {
     return NextResponse.json({ error: 'Missing teamSiteMap' }, { status: 400 });
   }
@@ -104,40 +112,70 @@ export async function POST(request) {
         }
       }
 
-      // Get team integrations and send notifications
+      // Get team integrations
       const integrations = await getTeamIntegrations(teamId);
 
-      // Determine whether to send Slack (default: yes if integration exists, unless schedule says no)
       const shouldSendSlack = scheduleNotifySlack !== undefined ? scheduleNotifySlack : true;
-      // Determine whether to send Email (default: no unless schedule says yes)
       const shouldSendEmail = scheduleNotifyEmail !== undefined ? scheduleNotifyEmail : false;
+      const shouldRunAI = scheduleNotifyAI === true;
 
       const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
         ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
         : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
 
+      // Run AI in parallel per site if requested (and log it)
+      let aiSummariesBySiteId = null;
+      if (shouldRunAI && siteResults.size > 0) {
+        const aiStart = Date.now();
+        try {
+          aiSummariesBySiteId = await runCompactAIForSites(teamId, siteResults);
+          await logEvent({
+            teamId, type: 'ai', level: 'info',
+            message: `Notify AI phase done for ${siteResults.size} site(s) in ${Date.now() - aiStart}ms`,
+            metadata: {
+              scheduleId,
+              durationMs: Date.now() - aiStart,
+              sites: siteResults.size,
+              aiSites: aiSummariesBySiteId ? Object.keys(aiSummariesBySiteId).length : 0,
+            },
+          });
+        } catch (err) {
+          await logEvent({
+            teamId, type: 'ai', level: 'error',
+            message: `AI run failed in notify: ${err.message}`,
+            metadata: { scheduleId, error: err.message },
+          });
+        }
+      }
+
       if (shouldSendSlack) {
         for (const integration of integrations) {
           if (integration.type === 'slack' && integration.config?.webhookUrl) {
             try {
-              // Use Block Kit format, fall back to text-only
               const message = integration.config.useBlocks !== false
-                ? buildDailySummary(siteResults, regressions, { baseUrl: publicBaseUrl })
-                : buildDailySummaryText(siteResults, regressions, { baseUrl: publicBaseUrl });
+                ? buildDailySummary(siteResults, regressions, { baseUrl: publicBaseUrl, aiSummariesBySiteId })
+                : buildDailySummaryText(siteResults, regressions, { baseUrl: publicBaseUrl, aiSummariesBySiteId });
 
               await sendSlackMessage(integration.config.webhookUrl, message);
               notificationsSent.push({ teamId, type: 'slack' });
+              await logEvent({
+                teamId, type: 'notification', level: 'info',
+                message: `Slack report sent (${siteResults.size} site${siteResults.size !== 1 ? 's' : ''})`,
+                metadata: { scheduleId, sites: siteResults.size, withAI: !!aiSummariesBySiteId },
+              });
             } catch (err) {
-              console.error(`Slack notification failed for team ${teamId}:`, err.message);
+              await logEvent({
+                teamId, type: 'notification', level: 'error',
+                message: `Slack send failed: ${err.message}`,
+                metadata: { scheduleId, error: err.message },
+              });
             }
           }
         }
       }
 
-      // Send email report if requested by schedule or email integration
       if (shouldSendEmail) {
         try {
-          // Build site data for the email
           const emailSites = [];
           for (const [, { site, results: siteData }] of siteResults) {
             emailSites.push({
@@ -147,20 +185,18 @@ export async function POST(request) {
             });
           }
 
-          // Gather email recipients from integration config
           const recipientSet = new Set();
           const emailIntegration = integrations.find((i) => i.type === 'email' && i.enabled);
           if (emailIntegration?.config?.emails) {
             emailIntegration.config.emails.split(',').map((e) => e.trim()).forEach((e) => recipientSet.add(e));
           }
-          // Fallback to env var
           if (recipientSet.size === 0 && process.env.EMAIL_TO) {
             process.env.EMAIL_TO.split(',').map((e) => e.trim()).forEach((e) => recipientSet.add(e));
           }
 
           const recipients = Array.from(recipientSet);
           if (recipients.length > 0 && emailSites.length > 0) {
-            const html = buildReportHTML(emailSites, { baseUrl: publicBaseUrl });
+            const html = buildReportHTML(emailSites, { baseUrl: publicBaseUrl, aiSummariesBySiteId });
             const date = new Date().toISOString().slice(0, 10);
             await sendReportEmail({
               to: recipients,
@@ -168,9 +204,18 @@ export async function POST(request) {
               html,
             });
             notificationsSent.push({ teamId, type: 'email' });
+            await logEvent({
+              teamId, type: 'notification', level: 'info',
+              message: `Email sent to ${recipients.length} recipient(s)`,
+              metadata: { scheduleId, recipients: recipients.length, withAI: !!aiSummariesBySiteId },
+            });
           }
         } catch (err) {
-          console.error(`Email notification failed for team ${teamId}:`, err.message);
+          await logEvent({
+            teamId, type: 'notification', level: 'error',
+            message: `Email send failed: ${err.message}`,
+            metadata: { scheduleId, error: err.message },
+          });
         }
       }
     }
