@@ -48,8 +48,55 @@ export default function Sidebar() {
         })}
       </nav>
 
+      <LiveClock />
       <UserProfile />
     </aside>
+  );
+}
+
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date());
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Avoid hydration mismatch — render a placeholder until client-mounted
+  if (!mounted) {
+    return (
+      <div className="px-4 py-2 border-t border-gray-800">
+        <div className="h-3 rounded bg-gray-800/60 animate-pulse" />
+      </div>
+    );
+  }
+
+  const localTime = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const localDate = now.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const utcTime = now.toUTCString().slice(17, 25);
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+
+  return (
+    <div className="px-4 py-3 border-t border-gray-800">
+      <div className="flex items-center gap-2">
+        <svg className="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-mono text-gray-200 tabular-nums">{localTime}</span>
+            <span className="text-[10px] text-gray-500 truncate" title={tz}>{tz.split('/').slice(-1)[0] || 'local'}</span>
+          </div>
+          <div className="flex items-baseline gap-2 mt-0.5">
+            <span className="text-[10px] text-gray-500">{localDate}</span>
+            <span className="text-[10px] text-gray-600">·</span>
+            <span className="text-[10px] text-gray-500 font-mono">{utcTime} UTC</span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
