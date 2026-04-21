@@ -7,22 +7,25 @@
   ],
   "functions": {
     "src/app/api/scan/worker/route.js": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "src/app/api/scan/manual/route.js": {
-      "maxDuration": 60
+      "maxDuration": 300
+    },
+    "src/app/api/scan/notify/route.js": {
+      "maxDuration": 300
     },
     "src/app/api/schedules/run/route.js": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "src/app/api/ai/route.js": {
-      "maxDuration": 60
+      "maxDuration": 120
     },
     "src/app/api/export/sheets/route.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "src/app/api/export/email/route.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   }
 }

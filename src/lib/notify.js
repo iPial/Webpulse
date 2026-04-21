@@ -58,11 +58,9 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
     // If nothing fresh, don't send a misleading "here are your scores" message
     if (!results || results.length === 0) {
       const errorMsg =
-        'PageSpeed API did not finish in Vercel Hobby\'s 60s function limit. ' +
-        'Google\'s PSI genuinely takes 60-90s for heavy WordPress sites. ' +
-        'Fixes: (1) Upgrade to Vercel Pro for 300s functions; ' +
-        '(2) Use manual "Scan Now" on each site (separate function budget); ' +
-        '(3) Scan simpler sites per schedule.';
+        'No fresh scan results produced. PSI may have returned errors or the ' +
+        'workers never delivered. Check /logs for QStash sig-verify failures or ' +
+        'PSI 5xx responses around this time.';
 
       await logEvent({
         teamId, type: 'notification', level: 'error',

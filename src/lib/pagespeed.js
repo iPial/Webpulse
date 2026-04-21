@@ -4,17 +4,16 @@ const PSI_API_URL = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
 // Core API Call
 // ============================================
 
-// PSI caches Lighthouse results. First call for a slow site can take
-// 45-60s+ to complete the fresh run; the very next call returns the
-// cached result in 5-15s. We exploit this: short first attempt, then
-// a cache-warm retry on timeout. Budget:
-//   1st call (45s cap) + 1s wait + 2nd call (12s cap) = 58s total.
-// Fits in Vercel's 60s function budget with room for DB save.
+// PSI runs Lighthouse on Google's infra; fresh scan takes 10-90s depending
+// on the site. PSI caches briefly, so on timeout a quick retry usually
+// picks up the cached result.
+// Budget: 90s first attempt + 1s wait + 30s retry = 121s. Well within
+// Vercel Pro's 300s function budget.
 export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
   const {
     apiKey: overrideKey,
-    timeoutMs = 42000,       // first-attempt cap; 42s + 1s wait + 15s retry = 58s
-    retryTimeoutMs = 15000,  // cache-warm retry cap (BD took 14.6s in tests)
+    timeoutMs = 90000,       // first-attempt cap — covers even slow WP sites
+    retryTimeoutMs = 30000,  // cache-warm retry cap
     retryOnTimeout = true,
   } = opts;
 

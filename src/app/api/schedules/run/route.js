@@ -7,7 +7,7 @@ import { logEvent } from '@/lib/logs';
 // POST /api/schedules/run
 // Body: { scheduleId } OR empty (poll: fire due + recover stuck).
 //
-// Architecture (QStash-powered, each site gets its own 60s budget):
+// Architecture (QStash-powered, each site gets its own 300s budget on Pro):
 //   1. This endpoint dispatches: enqueue N scan-worker messages + 1 delayed
 //      notify message via QStash, mark schedule 'running', return in < 2s.
 //   2. /api/scan/worker (one Vercel function per site): mobile + desktop
@@ -45,10 +45,10 @@ export async function POST(request) {
       if (error) throw error;
 
       const now = new Date();
-      // Recover schedules stuck in 'running' for > 3 min — notify never
-      // fired (QStash delivery failed or function died). Try to rescue by
-      // running notify inline if scan_results exist.
-      const recoverCutoffMs = now.getTime() - 3 * 60 * 1000;
+      // Recover schedules stuck in 'running' for > 6 min. With Vercel Pro's
+      // 300s function budget plus QStash notify delay + worker retries, a
+      // healthy run can take 4-5 min. Anything over 6 min is genuinely stuck.
+      const recoverCutoffMs = now.getTime() - 6 * 60 * 1000;
       const stuck = (data || []).filter((s) => {
         const cfg = s.config || {};
         if (cfg.status !== 'running') return false;
