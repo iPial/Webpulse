@@ -4,33 +4,59 @@ const PSI_API_URL = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
 // Core API Call
 // ============================================
 
-export async function runPageSpeedAudit(url, strategy = 'mobile', { apiKey: overrideKey, timeoutMs = 55000 } = {}) {
+// PSI caches Lighthouse results. First call for a slow site can take
+// 45-60s+ to complete the fresh run; the very next call returns the
+// cached result in 5-15s. We exploit this: short first attempt, then
+// a cache-warm retry on timeout. Budget:
+//   1st call (45s cap) + 1s wait + 2nd call (12s cap) = 58s total.
+// Fits in Vercel's 60s function budget with room for DB save.
+export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
+  const {
+    apiKey: overrideKey,
+    timeoutMs = 42000,       // first-attempt cap; 42s + 1s wait + 15s retry = 58s
+    retryTimeoutMs = 15000,  // cache-warm retry cap (BD took 14.6s in tests)
+    retryOnTimeout = true,
+  } = opts;
+
   const apiKey = overrideKey || process.env.GOOGLE_PSI_API_KEY;
   if (!apiKey) throw new Error('No PageSpeed API key configured. Add one in Settings > Integrations.');
 
-  // PSI API expects multiple category params
   const categoryUrl = `${PSI_API_URL}?url=${encodeURIComponent(url)}&key=${apiKey}&strategy=${strategy}&category=performance&category=accessibility&category=best-practices&category=seo`;
 
-  // Default 35s; scheduled runs can pass a tighter timeout so one slow site
-  // can't eat the Vercel 60s function budget.
-  const response = await fetch(categoryUrl, {
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`PageSpeed API error (${response.status}): ${body}`);
+  async function attempt(capMs) {
+    const start = Date.now();
+    const response = await fetch(categoryUrl, { signal: AbortSignal.timeout(capMs) });
+    const elapsed = Date.now() - start;
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`PageSpeed API error (${response.status}) after ${elapsed}ms: ${body.slice(0, 200)}`);
+    }
+    const data = await response.json();
+    const result = parseResponse(data);
+    result._fetchMs = elapsed;
+    return result;
   }
 
-  const data = await response.json();
-  return parseResponse(data);
+  try {
+    return await attempt(timeoutMs);
+  } catch (err) {
+    const isTimeout = err?.name === 'TimeoutError' || String(err.message).includes('aborted due to timeout');
+    if (!isTimeout || !retryOnTimeout) throw err;
+
+    // Timeout kicked PSI into generating the report. Wait 1s so the cache
+    // is warm, then retry with a much shorter cap.
+    await new Promise((r) => setTimeout(r, 1000));
+    const result = await attempt(retryTimeoutMs);
+    result._retried = true;
+    return result;
+  }
 }
 
-// Run both mobile and desktop audits for a site.
-// 55s per strategy; both run in parallel so the pair finishes in max(mobile, desktop)
-// ≤ 55s. Worker has its own 60s Vercel function budget. 5s left for DB save.
-export async function runFullAudit(url, { apiKey, timeoutMs = 55000 } = {}) {
-  const opts = apiKey ? { apiKey, timeoutMs } : { timeoutMs };
+// Run both mobile and desktop audits for a site. Both use the retry-on-
+// timeout strategy (see runPageSpeedAudit) so slow WP sites that need 45-60s
+// on the first attempt complete via a fast cache-warm retry.
+export async function runFullAudit(url, { apiKey } = {}) {
+  const opts = apiKey ? { apiKey } : {};
   const [mobile, desktop] = await Promise.all([
     runPageSpeedAudit(url, 'mobile', opts),
     runPageSpeedAudit(url, 'desktop', opts),
