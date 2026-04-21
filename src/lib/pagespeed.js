@@ -4,17 +4,22 @@ const PSI_API_URL = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
 // Core API Call
 // ============================================
 
-// PSI runs Lighthouse on Google's infra; fresh scan takes 10-90s depending
-// on the site. PSI caches briefly, so on timeout a quick retry usually
-// picks up the cached result.
-// Budget: 90s first attempt + 1s wait + 30s retry = 121s. Well within
-// Vercel Pro's 300s function budget.
+// PSI runs Lighthouse on Google's infra. Known failure modes:
+//   1. Fresh scan slow → our AbortSignal fires (TimeoutError)
+//   2. Lighthouse runner crashes → PSI returns 500 "Lighthouse returned error"
+//   3. Rate limit or upstream outage → PSI returns 5xx
+// All three are transient — retrying with a short cap usually succeeds
+// because PSI's cache already holds the partial run.
+//
+// Budget (worst case): 90s first + 2s wait + 45s retry + 2s wait + 30s retry
+//   = ~170s. Fits Vercel Pro's 300s function budget.
 export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
   const {
     apiKey: overrideKey,
-    timeoutMs = 90000,       // first-attempt cap — covers even slow WP sites
-    retryTimeoutMs = 30000,  // cache-warm retry cap
-    retryOnTimeout = true,
+    timeoutMs = 90000,
+    retryTimeoutMs = 45000,
+    maxRetries = 2,
+    retryDelayMs = 2000,
   } = opts;
 
   const apiKey = overrideKey || process.env.GOOGLE_PSI_API_KEY;
@@ -28,7 +33,9 @@ export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
     const elapsed = Date.now() - start;
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`PageSpeed API error (${response.status}) after ${elapsed}ms: ${body.slice(0, 200)}`);
+      const err = new Error(`PageSpeed API error (${response.status}) after ${elapsed}ms: ${body.slice(0, 200)}`);
+      err.status = response.status;
+      throw err;
     }
     const data = await response.json();
     const result = parseResponse(data);
@@ -36,19 +43,31 @@ export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
     return result;
   }
 
-  try {
-    return await attempt(timeoutMs);
-  } catch (err) {
-    const isTimeout = err?.name === 'TimeoutError' || String(err.message).includes('aborted due to timeout');
-    if (!isTimeout || !retryOnTimeout) throw err;
-
-    // Timeout kicked PSI into generating the report. Wait 1s so the cache
-    // is warm, then retry with a much shorter cap.
-    await new Promise((r) => setTimeout(r, 1000));
-    const result = await attempt(retryTimeoutMs);
-    result._retried = true;
-    return result;
+  function isRetryable(err) {
+    // Retry on: AbortSignal timeout, any 5xx from PSI, network fetch errors
+    if (err?.name === 'TimeoutError') return true;
+    if (err?.status && err.status >= 500) return true;
+    const msg = String(err?.message || '');
+    if (msg.includes('aborted due to timeout')) return true;
+    if (msg.includes('Lighthouse returned error')) return true;  // PSI 500 wrapped
+    if (msg.includes('fetch failed') || msg.includes('ECONNRESET')) return true;
+    return false;
   }
+
+  let lastErr;
+  for (let attemptNum = 0; attemptNum <= maxRetries; attemptNum++) {
+    const cap = attemptNum === 0 ? timeoutMs : retryTimeoutMs;
+    try {
+      const result = await attempt(cap);
+      if (attemptNum > 0) result._retried = attemptNum;
+      return result;
+    } catch (err) {
+      lastErr = err;
+      if (attemptNum === maxRetries || !isRetryable(err)) break;
+      await new Promise((r) => setTimeout(r, retryDelayMs));
+    }
+  }
+  throw lastErr;
 }
 
 // Run both mobile and desktop audits for a site. Both use the retry-on-
