@@ -33,18 +33,38 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
   const notificationsSent = [];
 
   // Only look at scan_results from the last 10 minutes so we don't
-  // aggregate stale data from a previous run (the classic "notify sent
-  // but sites show old scores" bug when all workers time out).
+  // aggregate stale data from a previous run.
   const freshSinceIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
   for (const [teamId, siteIds] of Object.entries(teamSiteMap)) {
-    const { data: results, error: resultsError } = await supabase
-      .from('scan_results')
-      .select('*, sites (id, name, url, team_id, tags, logo_url)')
-      .in('site_id', siteIds)
-      .gte('scanned_at', freshSinceIso)
-      .order('scanned_at', { ascending: false })
-      .limit(siteIds.length * 4);
+    // Try fetching 3 times with 20s waits between — catches stragglers
+    // where one worker finishes right around when notify fires.
+    let results = null;
+    let resultsError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await supabase
+        .from('scan_results')
+        .select('*, sites (id, name, url, team_id, tags, logo_url)')
+        .in('site_id', siteIds)
+        .gte('scanned_at', freshSinceIso)
+        .order('scanned_at', { ascending: false })
+        .limit(siteIds.length * 4);
+      results = r.data;
+      resultsError = r.error;
+
+      if (resultsError) break;
+      // Success path: we have at least 1 result per site expected
+      if (results && results.length >= siteIds.length) break;
+      // Otherwise wait and retry (except on last iteration)
+      if (attempt < 2) {
+        await logEvent({
+          teamId, type: 'notification', level: 'info',
+          message: `Notify: only ${results?.length || 0}/${siteIds.length * 2} results so far; waiting 20s for stragglers (attempt ${attempt + 1}/3)`,
+          metadata: { scheduleId, attempt: attempt + 1 },
+        });
+        await new Promise((r) => setTimeout(r, 20000));
+      }
+    }
 
     if (resultsError) {
       await logEvent({

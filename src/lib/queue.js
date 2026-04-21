@@ -52,16 +52,18 @@ export async function enqueueBatchScans(siteIds, baseUrl) {
   return results;
 }
 
-// Publish the notify job after scans complete
-// Delay scales with site count: each site takes ~15-30s to scan.
-// QStash processes in parallel, but we add buffer for API latency + DB writes.
-// If notify runs before all scans finish, it will still report whatever has landed.
+// Publish the notify job after scans complete.
+// Scan workers run in parallel; each site's worker can take up to ~170s
+// (90s first PSI attempt + retries for slow WP sites). Notify must wait
+// long enough for workers to write scan_results before reading them.
+// - Base: 200s (covers a worker's full retry budget)
+// - Per site beyond 10: +10s (DB writes under parallel load)
+// - Max: 290s (notify itself has 300s budget)
 export async function enqueueNotify(teamSiteMap, baseUrl, scheduleOptions = {}) {
   const client = getClient();
 
   const totalSites = Object.values(teamSiteMap).flat().length;
-  // Min 60s, +5s per site beyond 10, max 300s (5 min)
-  const delaySec = Math.min(300, Math.max(60, 60 + (totalSites - 10) * 5));
+  const delaySec = Math.min(290, Math.max(200, 200 + (totalSites - 10) * 10));
 
   const body = { teamSiteMap };
 
