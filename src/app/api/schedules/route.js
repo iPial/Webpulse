@@ -169,8 +169,10 @@ function isVercelPreviewHost(host) {
 }
 
 // PATCH /api/schedules
-// Body: { id, action: 'reset' }
-// Resets a schedule's status back to 'pending' so it can be retried.
+// Body:
+//   { id, action: 'reset' }                                  — back to pending
+//   { id, action: 'setFlag', flag: 'notifyAI', value: bool } — toggle a notify flag
+//   (also: 'notifySlack' | 'notifyEmail')
 export async function PATCH(request) {
   try {
     const cookieStore = await cookies();
@@ -183,8 +185,8 @@ export async function PATCH(request) {
     const body = await request.json();
     const { id, action } = body;
 
-    if (!id || action !== 'reset') {
-      return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: 'id required' }, { status: 400 });
     }
 
     const service = createServiceSupabase();
@@ -200,17 +202,33 @@ export async function PATCH(request) {
     }
 
     const cfg = existing.config || {};
+    let newConfig;
+    let logMsg;
+
+    if (action === 'reset') {
+      newConfig = {
+        ...cfg,
+        status: 'pending',
+        error: null,
+        runStartedAt: null,
+        staleReclaimedAt: null,
+      };
+      logMsg = `Schedule #${id} reset to pending by ${user.email}`;
+    } else if (action === 'setFlag') {
+      const { flag, value } = body;
+      const allowedFlags = ['notifySlack', 'notifyEmail', 'notifyAI'];
+      if (!allowedFlags.includes(flag)) {
+        return NextResponse.json({ error: `flag must be one of ${allowedFlags.join(', ')}` }, { status: 400 });
+      }
+      newConfig = { ...cfg, [flag]: !!value };
+      logMsg = `Schedule #${id} ${flag} → ${!!value} by ${user.email}`;
+    } else {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    }
+
     const { data: updated, error: updateError } = await service
       .from('integrations')
-      .update({
-        config: {
-          ...cfg,
-          status: 'pending',
-          error: null,
-          runStartedAt: null,
-          staleReclaimedAt: null,
-        },
-      })
+      .update({ config: newConfig })
       .eq('id', id)
       .select()
       .single();
@@ -221,15 +239,15 @@ export async function PATCH(request) {
       teamId: existing.team_id,
       type: 'schedule',
       level: 'info',
-      message: `Schedule #${id} reset to pending by ${user.email}`,
-      metadata: { scheduleId: id, resetBy: user.email },
+      message: logMsg,
+      metadata: { scheduleId: id, action, by: user.email },
     });
 
     return NextResponse.json({ schedule: updated });
   } catch (error) {
     console.error('Schedules PATCH error:', error);
     return NextResponse.json(
-      { error: 'Failed to reset schedule', details: error.message },
+      { error: 'Failed to update schedule', details: error.message },
       { status: 500 }
     );
   }

@@ -156,6 +156,30 @@ export default function ScheduleManager({ teamId }) {
     }
   }
 
+  async function handleToggleFlag(scheduleId, flag, newValue) {
+    // Optimistic update
+    setSchedules((prev) =>
+      prev.map((s) =>
+        s.id === scheduleId ? { ...s, config: { ...s.config, [flag]: newValue } } : s
+      )
+    );
+    try {
+      const res = await fetch('/api/schedules', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: scheduleId, action: 'setFlag', flag, value: newValue }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.details || data.error || 'Toggle failed');
+      // Use the server's returned schedule to stay in sync
+      setSchedules((prev) => prev.map((s) => (s.id === scheduleId ? data.schedule : s)));
+    } catch (err) {
+      setError(err.message);
+      // Revert on failure
+      fetchSchedules();
+    }
+  }
+
   async function handleReset(scheduleId) {
     try {
       const res = await fetch('/api/schedules', {
@@ -365,6 +389,7 @@ export default function ScheduleManager({ teamId }) {
               onDelete={handleDelete}
               onRunNow={handleRunNow}
               onReset={handleReset}
+              onToggleFlag={handleToggleFlag}
             />
           ))}
         </div>
@@ -373,7 +398,7 @@ export default function ScheduleManager({ teamId }) {
   );
 }
 
-function ScheduleRow({ schedule, onDelete, onRunNow, onReset }) {
+function ScheduleRow({ schedule, onDelete, onRunNow, onReset, onToggleFlag }) {
   const config = schedule.config || {};
   const status = config.status || 'pending';
   const statusStyle = STATUS_STYLES[status] || STATUS_STYLES.pending;
@@ -394,29 +419,28 @@ function ScheduleRow({ schedule, onDelete, onRunNow, onReset }) {
             {config.frequency || 'once'}
           </span>
         </div>
-        <div className="flex items-center gap-3 mt-1">
-          {config.notifySlack && (
-            <span className="text-xs text-gray-400 flex items-center gap-1">
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" />
-              </svg>
-              Slack
-            </span>
-          )}
-          {config.notifyEmail && (
-            <span className="text-xs text-gray-400 flex items-center gap-1">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
-              </svg>
-              Email
-            </span>
-          )}
-          {config.notifyAI && (
-            <span className="text-xs text-purple-400 flex items-center gap-1">🤖 AI</span>
-          )}
-          {!config.notifySlack && !config.notifyEmail && !config.notifyAI && (
-            <span className="text-xs text-gray-500">No notifications</span>
-          )}
+        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          <FlagPill
+            label="Slack"
+            emoji="#"
+            on={!!config.notifySlack}
+            onClick={() => onToggleFlag?.(schedule.id, 'notifySlack', !config.notifySlack)}
+            onColor="bg-blue-500/10 text-blue-400 border-blue-500/20"
+          />
+          <FlagPill
+            label="Email"
+            emoji="@"
+            on={!!config.notifyEmail}
+            onClick={() => onToggleFlag?.(schedule.id, 'notifyEmail', !config.notifyEmail)}
+            onColor="bg-green-500/10 text-green-400 border-green-500/20"
+          />
+          <FlagPill
+            label="AI"
+            emoji="🤖"
+            on={!!config.notifyAI}
+            onClick={() => onToggleFlag?.(schedule.id, 'notifyAI', !config.notifyAI)}
+            onColor="bg-purple-500/10 text-purple-400 border-purple-500/20"
+          />
         </div>
       </div>
 
@@ -455,5 +479,20 @@ function ScheduleRow({ schedule, onDelete, onRunNow, onReset }) {
         </button>
       </div>
     </div>
+  );
+}
+
+function FlagPill({ label, emoji, on, onClick, onColor }) {
+  const offColor = 'bg-gray-800 text-gray-500 border-gray-700 hover:bg-gray-700';
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+      title={on ? `Click to turn ${label} off` : `Click to turn ${label} on`}
+      className={`text-[10px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 transition-colors ${on ? onColor : offColor}`}
+    >
+      <span>{emoji}</span>
+      <span>{label}</span>
+      <span className="opacity-60">{on ? 'on' : 'off'}</span>
+    </button>
   );
 }

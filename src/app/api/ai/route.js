@@ -84,10 +84,12 @@ export async function POST(request) {
     const isWPRocket = Array.isArray(site.tags) && site.tags.includes('wp-rocket');
     const markdown = renderCompactAsMarkdown(parsed, { isWPRocket });
 
-    // Save markdown + upsert fixes from the SAME parsed data
+    // Explicit user re-analyze → wipe and rebuild the checklist so it
+    // reflects the fresh AI output. (Scheduled AI uses merge mode in
+    // ai-batch.js so "fixed" tasks survive across scans.)
     await Promise.all([
       saveSiteAIAnalysis(site.id, markdown),
-      upsertSiteFixes(site.id, parsed.topFixes).catch((err) => {
+      upsertSiteFixes(site.id, parsed.topFixes, { reset: true }).catch((err) => {
         console.error('upsertSiteFixes failed in /api/ai:', err.message);
       }),
     ]);

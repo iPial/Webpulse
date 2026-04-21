@@ -480,15 +480,19 @@ export async function getSiteFixes(cookieStore, siteId) {
 }
 
 // Service role — called from the scheduler / /api/ai after AI produces top fixes.
-// Behavior:
+// Behavior (default = merge):
 //   - new (siteId,title): insert pending
 //   - existing pending: refresh fields + last_seen_at
 //   - existing fixed: mark needs_reverify=true, bump last_seen_at
-//   - pending rows NOT in this batch (stale titles): DELETED so the list
-//     always reflects the latest AI output. Fixed rows are preserved.
-// Resilient to missing migration 005 columns — strips them and retries
-// on "column does not exist" errors so the insert always succeeds.
-export async function upsertSiteFixes(siteId, fixes = []) {
+//   - pending rows NOT in this batch (stale titles): DELETED
+//
+// `reset: true` (used by explicit user Re-analyze):
+//   - ALL existing rows for the site are deleted first, then new ones
+//     inserted. User sees a completely fresh checklist. Fixed items are
+//     also cleared — intentional, because user asked for a reset.
+//
+// Resilient to missing migration 005 columns.
+export async function upsertSiteFixes(siteId, fixes = [], { reset = false } = {}) {
   if (!Array.isArray(fixes) || fixes.length === 0) return;
 
   const supabase = createServiceSupabase();
@@ -497,8 +501,25 @@ export async function upsertSiteFixes(siteId, fixes = []) {
   const titles = fixes.map((f) => f.title).filter(Boolean);
   if (titles.length === 0) return;
 
-  // Fetch ALL existing fixes for this site (not just these titles) so we
-  // can delete stale pending rows from a prior (smaller) analysis.
+  // Reset mode: wipe everything first, then insert fresh
+  if (reset) {
+    await supabase.from('site_fixes').delete().eq('site_id', siteId);
+    const rows = fixes.filter((f) => f?.title).map((fix) => ({
+      site_id: siteId,
+      title: fix.title,
+      status: 'pending',
+      action: fix.action || null,
+      impact: fix.impact || null,
+      expected_gain: fix.expectedGain || null,
+      rocket_path: fix.rocketPath || null,
+      caveats: fix.caveats || null,
+      last_seen_at: nowIso,
+    }));
+    if (rows.length > 0) await insertFixesResilient(supabase, rows);
+    return;
+  }
+
+  // Merge mode (default): preserve fixed rows, refresh pending, delete stale pending
   const { data: allExisting } = await supabase
     .from('site_fixes')
     .select('id, title, status')
