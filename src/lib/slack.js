@@ -1,6 +1,5 @@
-import { getScoreEmoji } from './pagespeed';
 import { resolveLogoUrl } from './logos';
-import { computeDeltas, formatDeltaPlain } from './deltas';
+import { computeDeltas } from './deltas';
 
 // ============================================
 // Slack Webhook Client
@@ -25,63 +24,63 @@ export async function sendSlackAlert(text) {
 }
 
 // ============================================
-// Helpers
+// Vital thresholds + plain-English descriptions
 // ============================================
 
-function auditCounts(result) {
-  const a = result?.audits;
-  if (!a) return null;
-  return {
-    critical: Array.isArray(a.critical) ? a.critical.length : 0,
-    improvement: Array.isArray(a.improvement) ? a.improvement.length : 0,
-    optional: Array.isArray(a.optional) ? a.optional.length : 0,
+// Parse display values like "7.5 s", "2,170 ms", "0.043" → number in ms/seconds/unitless
+function parseVitalMs(displayValue) {
+  if (!displayValue) return null;
+  const s = String(displayValue).toLowerCase().replace(/,/g, '').trim();
+  const num = parseFloat(s);
+  if (isNaN(num)) return null;
+  if (s.endsWith('ms')) return num;
+  if (s.endsWith('s')) return num * 1000;
+  return num; // CLS is unitless
+}
+
+function vitalStatus(metric, displayValue) {
+  const v = parseVitalMs(displayValue);
+  if (v === null) return { emoji: '⚪', label: 'no data' };
+
+  const thresholds = {
+    lcp: { good: 2500, poor: 4000 },   // ms
+    fcp: { good: 1800, poor: 3000 },   // ms
+    tbt: { good: 200, poor: 600 },     // ms
+    cls: { good: 0.1, poor: 0.25 },    // unitless
+    si:  { good: 3400, poor: 5800 },   // ms
   };
+  const t = thresholds[metric];
+  if (!t) return { emoji: '⚪', label: 'unknown' };
+  if (v <= t.good) return { emoji: '🟢', label: 'good' };
+  if (v <= t.poor) return { emoji: '🟡', label: 'needs work' };
+  return { emoji: '🔴', label: 'poor' };
 }
 
-function formatCountsLine(counts) {
-  if (!counts) return null;
-  const parts = [];
-  if (counts.critical > 0) parts.push(`🔴 ${counts.critical} critical`);
-  if (counts.improvement > 0) parts.push(`🟡 ${counts.improvement} to improve`);
-  if (counts.optional > 0) parts.push(`🟢 ${counts.optional} optional`);
-  if (parts.length === 0) return '✅ No issues to fix';
-  return parts.join('  ·  ');
+// Plain-English description per vital with target
+function vitalDescription(metric, displayValue) {
+  const status = vitalStatus(metric, displayValue);
+  const labels = {
+    lcp: ['Largest image/text visible in', 'target: under 2.5s'],
+    fcp: ['First content appears in', 'target: under 1.8s'],
+    tbt: ['Scripts block the page for', 'target: under 200ms'],
+    cls: ['Layout shift score:', 'target: under 0.1 (lower is better)'],
+    si:  ['Page content visible in', 'target: under 3.4s'],
+  };
+  const [prefix, target] = labels[metric] || [metric, ''];
+  return `${status.emoji} ${prefix} ${displayValue} _(${target})_`;
 }
 
-// Renders a single score value with a delta suffix if present.
-function scoreWithDelta(label, value, delta) {
-  const base = `${label} ${value}`;
-  if (delta === null || delta === undefined || delta === 0) return base;
+function scoreEmojiFor(score) {
+  if (score >= 90) return '🟢';
+  if (score >= 50) return '🟡';
+  return '🔴';
+}
+
+function deltaText(delta) {
+  if (delta === null || delta === undefined || delta === 0) return '—';
   const arrow = delta > 0 ? '▲' : '▼';
   const sign = delta > 0 ? '+' : '';
-  return `${base} ${arrow}${sign}${delta}`;
-}
-
-// Format all four scores for one strategy row, with deltas vs previous scan.
-function formatScoresLine(result, prev) {
-  const deltas = computeDeltas(result, prev);
-  const parts = [
-    `*Perf ${getScoreEmoji(result.performance)} ${result.performance}${deltaSuffix(deltas?.performance)}*`,
-    scoreWithDelta('A11y', result.accessibility, deltas?.accessibility),
-    scoreWithDelta('BP', result.best_practices, deltas?.bestPractices),
-    scoreWithDelta('SEO', result.seo, deltas?.seo),
-  ];
-  return parts.join('  ·  ');
-}
-
-function deltaSuffix(delta) {
-  if (delta === null || delta === undefined || delta === 0) return '';
-  const arrow = delta > 0 ? ' ▲+' : ' ▼';
-  return `${arrow}${delta > 0 ? delta : delta}`;
-}
-
-function formatVitals(result) {
-  const parts = [];
-  if (result.lcp) parts.push(`LCP ${result.lcp}`);
-  if (result.fcp) parts.push(`FCP ${result.fcp}`);
-  if (result.tbt) parts.push(`TBT ${result.tbt}`);
-  if (result.cls) parts.push(`CLS ${result.cls}`);
-  return parts.length > 0 ? parts.join('  ·  ') : null;
+  return `${arrow} ${sign}${delta}`;
 }
 
 function countTotalCritical(siteResults) {
@@ -98,31 +97,316 @@ function escapeSlack(text) {
 }
 
 // ============================================
-// Main builder — Block Kit with logos, deltas, AI fixes
+// Scan Report — Option A "Scorecard" (plain language, side-by-side)
 // ============================================
 
 export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
   const blocks = [];
   const totalSites = siteResults.size;
   const totalCritical = countTotalCritical(siteResults);
+  const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
   // 1) Header
   blocks.push({
     type: 'header',
-    text: { type: 'plain_text', text: '📊 Webpulse Scan Report', emoji: true },
+    text: { type: 'plain_text', text: `📊 Webpulse Scan — ${dateStr}`, emoji: true },
   });
 
-  // 2) Summary row with "Open Dashboard" button
+  // 2) Summary row with Open Dashboard button
+  const summaryText =
+    `*${totalSites}* site${totalSites !== 1 ? 's' : ''} scanned` +
+    `  ·  ${totalCritical > 0 ? `🔴 *${totalCritical}* critical issues` : '✅ No critical issues'}` +
+    (aiSummariesBySiteId ? '  ·  🤖 AI analysis included' : '');
+
+  const summaryBlock = {
+    type: 'section',
+    text: { type: 'mrkdwn', text: summaryText },
+  };
+  if (baseUrl) {
+    summaryBlock.accessory = {
+      type: 'button',
+      text: { type: 'plain_text', text: 'Open Dashboard', emoji: true },
+      url: baseUrl,
+      style: 'primary',
+      action_id: 'open_dashboard',
+    };
+  }
+  blocks.push(summaryBlock);
+  blocks.push({ type: 'divider' });
+
+  // 3) Per-site scorecard
+  let first = true;
+  for (const [, { site, results, previous = {} }] of siteResults) {
+    const mobile = results.mobile;
+    const desktop = results.desktop;
+    if (!mobile && !desktop) continue;
+
+    if (!first) blocks.push({ type: 'divider' });
+    first = false;
+
+    pushSiteCard(blocks, site, mobile, desktop, previous, baseUrl);
+
+    // AI top fixes
+    if (aiSummariesBySiteId && aiSummariesBySiteId[site.id]) {
+      pushAIFixesSection(blocks, site, aiSummariesBySiteId[site.id], baseUrl);
+    }
+  }
+
+  // 4) Regression alerts
+  if (regressions && regressions.length > 0) {
+    blocks.push({ type: 'divider' });
+    blocks.push({
+      type: 'header',
+      text: { type: 'plain_text', text: '⚠️ Regression Alerts', emoji: true },
+    });
+    const regLines = [];
+    for (const { site, regressions: siteRegs } of regressions) {
+      for (const reg of siteRegs) {
+        regLines.push(
+          `⬇️ *${escapeSlack(site.name)}* — ${reg.category}: *${reg.previous}* → *${reg.current}* (−${reg.drop})`
+        );
+      }
+    }
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: regLines.join('\n') } });
+  }
+
+  // 5) Footer
+  blocks.push({
+    type: 'context',
+    elements: [
+      {
+        type: 'mrkdwn',
+        text:
+          `🕒 ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC` +
+          (baseUrl ? `  ·  <${baseUrl}|Open Dashboard>` : ''),
+      },
+    ],
+  });
+
+  // Slack 50-block limit guard
+  if (blocks.length > 49) {
+    const truncated = blocks.slice(0, 48);
+    truncated.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: `_…and ${blocks.length - 48} more items (truncated)_` }],
+    });
+    return { blocks: truncated };
+  }
+  return { blocks };
+}
+
+function pushSiteCard(blocks, site, mobile, desktop, previous, baseUrl) {
+  const logoUrl = resolveLogoUrl(site, 48);
+
+  // Site name header (context block so logo renders tiny inline)
+  const headerElements = [];
+  if (logoUrl) headerElements.push({ type: 'image', image_url: logoUrl, alt_text: site.name });
+  headerElements.push({
+    type: 'mrkdwn',
+    text: `*<${site.url}|${escapeSlack(site.name)}>*  ·  ${escapeSlack(site.url)}`,
+  });
+  blocks.push({ type: 'context', elements: headerElements });
+
+  // Scores — Mobile & Desktop in a two-field section (Slack renders fields in 2 columns)
+  const scoresSection = { type: 'section', fields: [] };
+  if (mobile) {
+    scoresSection.fields.push({
+      type: 'mrkdwn',
+      text:
+        `*📱 MOBILE*\n` +
+        formatScoreLines(mobile, previous?.mobile),
+    });
+  }
+  if (desktop) {
+    scoresSection.fields.push({
+      type: 'mrkdwn',
+      text:
+        `*🖥️ DESKTOP*\n` +
+        formatScoreLines(desktop, previous?.desktop),
+    });
+  }
+  if (scoresSection.fields.length > 0) blocks.push(scoresSection);
+
+  // Vitals explained in plain English — mobile first (primary metric)
+  const primary = mobile || desktop;
+  const strategyLabel = mobile ? 'mobile' : 'desktop';
+  const vitalLines = [`*Loading speed on ${strategyLabel}:*`];
+  if (primary.lcp) vitalLines.push(`• ${vitalDescription('lcp', primary.lcp)}`);
+  if (primary.fcp) vitalLines.push(`• ${vitalDescription('fcp', primary.fcp)}`);
+  if (primary.tbt) vitalLines.push(`• ${vitalDescription('tbt', primary.tbt)}`);
+  if (primary.cls) vitalLines.push(`• ${vitalDescription('cls', primary.cls)}`);
+
+  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: vitalLines.join('\n') } });
+
+  // Issue counts
+  const a = primary.audits || {};
+  const crit = Array.isArray(a.critical) ? a.critical.length : 0;
+  const impr = Array.isArray(a.improvement) ? a.improvement.length : 0;
+  if (crit > 0 || impr > 0) {
+    const parts = [];
+    if (crit > 0) parts.push(`🔴 *${crit} critical issues* blocking the load — fix these first`);
+    if (impr > 0) parts.push(`🟡 ${impr} opportunities to improve`);
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: parts.join('\n') } });
+  } else {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `✅ No critical issues on this site` } });
+  }
+
+  // View Full Report button
+  if (baseUrl) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'View Full Report', emoji: true },
+          url: `${baseUrl}/site/${site.id}`,
+          action_id: `view_${site.id}`,
+        },
+      ],
+    });
+  }
+}
+
+// Render 4 score lines for one strategy with deltas
+function formatScoreLines(result, prev) {
+  const deltas = computeDeltas(result, prev);
+  const rows = [
+    scoreRow('Performance', result.performance, deltas?.performance, true),
+    scoreRow('Accessibility', result.accessibility, deltas?.accessibility),
+    scoreRow('Best Practices', result.best_practices, deltas?.bestPractices),
+    scoreRow('SEO', result.seo, deltas?.seo),
+  ];
+  return rows.join('\n');
+}
+
+function scoreRow(label, value, delta, withEmoji = false) {
+  const emoji = withEmoji ? `${scoreEmojiFor(value)} ` : '';
+  const deltaStr = deltaText(delta);
+  return `${label}  ${emoji}*${value}*  ${deltaStr}`;
+}
+
+function pushAIFixesSection(blocks, site, ai, baseUrl) {
+  const topN = 3;
+  const allFixes = ai.topFixes || [];
+  const top = allFixes.slice(0, topN);
+  const overflow = allFixes.length - top.length;
+  if (!ai.summary && top.length === 0) return;
+
+  const lines = [`🤖 *Top ${top.length} things to fix (AI analysis)*`];
+  if (ai.summary) {
+    lines.push(`_${escapeSlack(ai.summary)}_`);
+    lines.push('');
+  }
+
+  top.forEach((fix, i) => {
+    const impact = fix.impact ? `  —  *${fix.impact} impact*` : '';
+    lines.push(`*${i + 1}. ${escapeSlack(fix.title)}*${impact}`);
+    if (fix.rocketPath) {
+      lines.push(`   WP Rocket: \`${escapeSlack(fix.rocketPath)}\``);
+    }
+    if (fix.action) {
+      lines.push(`   Why: ${escapeSlack(fix.action)}`);
+    }
+    lines.push(''); // spacer between fixes
+  });
+
+  if (overflow > 0) {
+    const more = baseUrl
+      ? `<${baseUrl}/site/${site.id}|+${overflow} more in dashboard →>`
+      : `+${overflow} more in dashboard`;
+    lines.push(more);
+  }
+
+  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } });
+}
+
+// ============================================
+// Text-only fallback (webhooks without Block Kit)
+// ============================================
+
+export function buildDailySummaryText(siteResults, regressions, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
+  const lines = ['*📊 Webpulse Scan Report*'];
+  if (baseUrl) lines.push(`<${baseUrl}|Open Dashboard>`);
+  lines.push('');
+
+  for (const [, { site, results, previous = {} }] of siteResults) {
+    const mobile = results.mobile;
+    const desktop = results.desktop;
+    if (!mobile && !desktop) continue;
+
+    lines.push(`*<${site.url}|${escapeSlack(site.name)}>*`);
+    if (mobile) {
+      lines.push(`   📱 Mobile:`);
+      const m = formatScoreLines(mobile, previous?.mobile).split('\n').map((l) => '      ' + l);
+      lines.push(...m);
+    }
+    if (desktop) {
+      lines.push(`   🖥️ Desktop:`);
+      const d = formatScoreLines(desktop, previous?.desktop).split('\n').map((l) => '      ' + l);
+      lines.push(...d);
+    }
+    if (baseUrl) lines.push(`   <${baseUrl}/site/${site.id}|View full report →>`);
+    lines.push('');
+  }
+
+  if (regressions && regressions.length > 0) {
+    lines.push('⚠️ *Regression Alerts*');
+    for (const { site, regressions: siteRegs } of regressions) {
+      for (const reg of siteRegs) {
+        lines.push(`   ⬇️ ${escapeSlack(site.name)} — ${reg.category}: ${reg.previous} → ${reg.current} (−${reg.drop})`);
+      }
+    }
+  }
+  return { text: lines.join('\n') };
+}
+
+export function buildRegressionAlert(siteName, regressions) {
+  const lines = [`🚨 *Regression Alert: ${escapeSlack(siteName)}*`, ''];
+  for (const reg of regressions) {
+    lines.push(`⬇️ ${reg.category}: *${reg.previous}* → *${reg.current}* (−${reg.drop})`);
+  }
+  return { text: lines.join('\n') };
+}
+
+// ============================================
+// Trend Report — Week-over-week summary (Option 1)
+// ============================================
+
+// Input shape:
+//   trendBySiteId: {
+//     [siteId]: {
+//       site: { name, url, id },
+//       thisWeek: { avgPerf, avgA11y, avgBP, avgSEO, avgLcpMs, avgFcpMs, avgTbtMs, avgCls, criticalCount },
+//       lastWeek: { avgPerf, avgA11y, avgBP, avgSEO, avgLcpMs, avgFcpMs, avgTbtMs, avgCls, criticalCount },
+//       bestDay: { dateIso, strategy, perf },
+//       worstDay: { dateIso, strategy, perf, cause? },
+//     }
+//   }
+export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, periodEnd } = {}) {
+  const blocks = [];
+  const siteIds = Object.keys(trendBySiteId);
+  const sites = siteIds.map((id) => trendBySiteId[id]);
+
+  const startDate = periodStart ? new Date(periodStart) : new Date(Date.now() - 7 * 86400000);
+  const endDate = periodEnd ? new Date(periodEnd) : new Date();
+
+  const dateRange =
+    `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}–` +
+    `${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+  // 1) Header
+  blocks.push({
+    type: 'header',
+    text: { type: 'plain_text', text: `📈 Webpulse Trend Report — Last 7 days vs prior week`, emoji: true },
+  });
+
+  // 2) Summary
+  const totalScans = sites.reduce((acc, s) => acc + (s.thisWeek?.scanCount || 0), 0);
   const summaryBlock = {
     type: 'section',
     text: {
       type: 'mrkdwn',
-      text:
-        `*${totalSites}* site${totalSites !== 1 ? 's' : ''} scanned` +
-        (totalCritical > 0
-          ? `  ·  🔴 *${totalCritical}* critical issue${totalCritical !== 1 ? 's' : ''}`
-          : '  ·  ✅ No critical issues') +
-        (aiSummariesBySiteId ? '  ·  🤖 AI analysis included' : ''),
+      text: `${dateRange}  ·  *${sites.length}* site${sites.length !== 1 ? 's' : ''}  ·  *${totalScans}* scans this week`,
     },
   };
   if (baseUrl) {
@@ -137,223 +421,156 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
   blocks.push(summaryBlock);
   blocks.push({ type: 'divider' });
 
-  // 3) One block per site
+  // 3) Per-site trend
+  let globalBest = null;
+  let globalWorst = null;
   let first = true;
-  for (const [, { site, results, previous = {} }] of siteResults) {
-    const mobile = results.mobile;
-    const desktop = results.desktop;
-    if (!mobile && !desktop) continue;
-
+  for (const entry of sites) {
+    if (!entry?.site) continue;
     if (!first) blocks.push({ type: 'divider' });
     first = false;
 
-    const logoUrl = resolveLogoUrl(site, 48);
-
-    // 3a) Site header: small inline logo on the left + bold name + URL.
-    // Context block renders images at ~20px, keeping the header compact.
-    const contextElements = [];
-    if (logoUrl) {
-      contextElements.push({
-        type: 'image',
-        image_url: logoUrl,
-        alt_text: site.name,
-      });
-    }
-    contextElements.push({
+    const logoUrl = resolveLogoUrl(entry.site, 48);
+    const headerElements = [];
+    if (logoUrl) headerElements.push({ type: 'image', image_url: logoUrl, alt_text: entry.site.name });
+    headerElements.push({
       type: 'mrkdwn',
-      text: `*<${site.url}|${escapeSlack(site.name)}>*  ·  ${escapeSlack(site.url)}`,
+      text: `*<${entry.site.url}|${escapeSlack(entry.site.name)}>*`,
     });
+    blocks.push({ type: 'context', elements: headerElements });
 
-    blocks.push({
-      type: 'context',
-      elements: contextElements,
-    });
+    const lines = [];
 
-    // 3b) Mobile block
-    if (mobile) {
-      const lines = [`📱 *Mobile*   ${formatScoresLine(mobile, previous?.mobile)}`];
-      const vitals = formatVitals(mobile);
-      if (vitals) lines.push(`   _${vitals}_`);
-      const counts = formatCountsLine(auditCounts(mobile));
-      if (counts) lines.push(`   ${counts}`);
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: lines.join('\n') },
-      });
+    // Scores comparison
+    const tw = entry.thisWeek || {};
+    const lw = entry.lastWeek || {};
+    lines.push(`*Scores (weekly average)*`);
+    lines.push(trendRow('Mobile Performance', lw.avgPerf, tw.avgPerf));
+    lines.push(trendRow('Desktop Performance', lw.avgDesktopPerf, tw.avgDesktopPerf));
+    lines.push(trendRow('Accessibility', lw.avgA11y, tw.avgA11y));
+    lines.push(trendRow('SEO', lw.avgSEO, tw.avgSEO));
+    lines.push('');
+
+    // Vitals comparison (mobile)
+    lines.push(`*Core Vitals (mobile average)*`);
+    if (lw.avgLcpMs != null || tw.avgLcpMs != null)
+      lines.push(vitalTrendRow('LCP', lw.avgLcpMs, tw.avgLcpMs, 'ms', true));
+    if (lw.avgTbtMs != null || tw.avgTbtMs != null)
+      lines.push(vitalTrendRow('TBT', lw.avgTbtMs, tw.avgTbtMs, 'ms', true));
+    if (lw.avgCls != null || tw.avgCls != null)
+      lines.push(vitalTrendRow('CLS', lw.avgCls, tw.avgCls, '', true, 3));
+    lines.push('');
+
+    // Critical issues delta
+    if (tw.criticalCount != null && lw.criticalCount != null) {
+      const delta = tw.criticalCount - lw.criticalCount;
+      const verdict =
+        delta === 0 ? '— unchanged' :
+        delta > 0  ? `▼ *${delta}* new issue${delta !== 1 ? 's' : ''} appeared` :
+                     `▲ *${Math.abs(delta)}* issue${Math.abs(delta) !== 1 ? 's' : ''} resolved`;
+      lines.push(`*Critical issues:*  ${lw.criticalCount}  →  *${tw.criticalCount}*  ${verdict}`);
     }
 
-    // 3c) Desktop block
-    if (desktop) {
-      const lines = [`🖥️ *Desktop*   ${formatScoresLine(desktop, previous?.desktop)}`];
-      const vitals = formatVitals(desktop);
-      if (vitals) lines.push(`   _${vitals}_`);
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: lines.join('\n') },
-      });
-    }
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } });
 
-    // 3d) View Report action row
     if (baseUrl) {
       blocks.push({
         type: 'actions',
         elements: [
           {
             type: 'button',
-            text: { type: 'plain_text', text: 'View Full Report', emoji: true },
-            url: `${baseUrl}/site/${site.id}`,
-            action_id: `view_${site.id}`,
+            text: { type: 'plain_text', text: 'View History', emoji: true },
+            url: `${baseUrl}/history?site=${entry.site.id}`,
+            action_id: `history_${entry.site.id}`,
           },
         ],
       });
     }
 
-    // 3e) AI top fixes (if provided) — show at most 5 in Slack, rest via dashboard
-    if (aiSummariesBySiteId && aiSummariesBySiteId[site.id]) {
-      const ai = aiSummariesBySiteId[site.id];
-      const allFixes = ai.topFixes || [];
-      const top = allFixes.slice(0, 5);
-      const overflow = allFixes.length - top.length;
-
-      const aiLines = ['🤖 *Top fixes*'];
-      if (ai.summary) aiLines.push(`_${escapeSlack(ai.summary)}_`);
-      for (const fix of top) {
-        const impact = fix.impact ? ` _[${fix.impact}]_` : '';
-        aiLines.push(`• *${escapeSlack(fix.title)}*${impact}`);
-        if (fix.rocketPath) aiLines.push(`   ↳ \`${escapeSlack(fix.rocketPath)}\``);
-        aiLines.push(`   ↳ ${escapeSlack(fix.action)}`);
-      }
-      if (overflow > 0 && baseUrl) {
-        aiLines.push(`   <${baseUrl}/site/${site.id}|+${overflow} more fix${overflow !== 1 ? 'es' : ''} in dashboard →>`);
-      } else if (overflow > 0) {
-        aiLines.push(`_+${overflow} more fix${overflow !== 1 ? 'es' : ''} in dashboard_`);
-      }
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: aiLines.join('\n') },
-      });
+    // Track best/worst day across all sites
+    if (entry.bestDay && (!globalBest || entry.bestDay.perf > globalBest.perf)) {
+      globalBest = { ...entry.bestDay, siteName: entry.site.name };
+    }
+    if (entry.worstDay && (!globalWorst || entry.worstDay.perf < globalWorst.perf)) {
+      globalWorst = { ...entry.worstDay, siteName: entry.site.name };
     }
   }
 
-  // 4) Regression alerts
-  if (regressions && regressions.length > 0) {
+  // 4) Best/worst day summary
+  if (globalBest || globalWorst) {
     blocks.push({ type: 'divider' });
-    blocks.push({
-      type: 'header',
-      text: { type: 'plain_text', text: '⚠️ Regression Alerts', emoji: true },
-    });
-
-    const regLines = [];
-    for (const { site, regressions: siteRegs } of regressions) {
-      for (const reg of siteRegs) {
-        regLines.push(
-          `⬇️ *${escapeSlack(site.name)}* — ${reg.category}: *${reg.previous}* → *${reg.current}* (−${reg.drop})`
-        );
-      }
+    const highlights = [];
+    if (globalBest) {
+      const d = new Date(globalBest.dateIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      highlights.push(`📊 *Best day:* ${d} — ${escapeSlack(globalBest.siteName)} hit ${globalBest.strategy} performance *${globalBest.perf}*`);
     }
-
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: regLines.join('\n') },
-    });
+    if (globalWorst) {
+      const d = new Date(globalWorst.dateIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const cause = globalWorst.cause ? ` (${globalWorst.cause})` : '';
+      highlights.push(`📉 *Worst day:* ${d} — ${escapeSlack(globalWorst.siteName)} dropped to *${globalWorst.perf}*${cause}`);
+    }
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: highlights.join('\n') } });
   }
 
   // 5) Footer
+  const footerParts = [
+    `🕒 Report period: ${startDate.toISOString().slice(0, 16).replace('T', ' ')} → ${endDate.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+  ];
+  if (baseUrl) footerParts.push(`<${baseUrl}|Open Dashboard>`);
   blocks.push({
     type: 'context',
-    elements: [
-      {
-        type: 'mrkdwn',
-        text:
-          `🕒 Scanned ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC` +
-          (baseUrl ? `  ·  <${baseUrl}|Open Dashboard>` : ''),
-      },
-    ],
+    elements: [{ type: 'mrkdwn', text: footerParts.join('  ·  ') }],
   });
 
-  // Slack Block Kit has a 50-block limit
   if (blocks.length > 49) {
     const truncated = blocks.slice(0, 48);
     truncated.push({
       type: 'context',
-      elements: [
-        { type: 'mrkdwn', text: `_…and ${blocks.length - 48} more items (truncated)_` },
-      ],
+      elements: [{ type: 'mrkdwn', text: `_…truncated to fit Slack's 50-block limit_` }],
     });
     return { blocks: truncated };
   }
-
   return { blocks };
 }
 
-// ============================================
-// Text-only fallback
-// ============================================
+function trendRow(label, lastWeekVal, thisWeekVal) {
+  if (lastWeekVal == null && thisWeekVal == null) return null;
+  const lw = lastWeekVal != null ? Math.round(lastWeekVal) : '—';
+  const tw = thisWeekVal != null ? Math.round(thisWeekVal) : '—';
+  if (lw === '—' || tw === '—') return `${label}:  ${lw}  →  *${tw}*  — no comparison`;
 
-export function buildDailySummaryText(siteResults, regressions, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
-  const lines = ['*📊 Webpulse Scan Report*'];
-  if (baseUrl) lines.push(`<${baseUrl}|Open Dashboard>`);
-  lines.push('');
-
-  for (const [, { site, results, previous = {} }] of siteResults) {
-    const mobile = results.mobile;
-    const desktop = results.desktop;
-    if (!mobile && !desktop) continue;
-
-    lines.push(`*<${site.url}|${escapeSlack(site.name)}>*`);
-
-    if (mobile) {
-      lines.push(`   📱 Mobile: ${formatScoresLine(mobile, previous?.mobile)}`);
-      const v = formatVitals(mobile);
-      if (v) lines.push(`      _${v}_`);
-      const c = formatCountsLine(auditCounts(mobile));
-      if (c) lines.push(`      ${c}`);
-    }
-
-    if (desktop) {
-      lines.push(`   🖥️ Desktop: ${formatScoresLine(desktop, previous?.desktop)}`);
-      const v = formatVitals(desktop);
-      if (v) lines.push(`      _${v}_`);
-    }
-
-    if (aiSummariesBySiteId && aiSummariesBySiteId[site.id]) {
-      const ai = aiSummariesBySiteId[site.id];
-      lines.push(`   🤖 Top fixes:`);
-      if (ai.summary) lines.push(`      _${escapeSlack(ai.summary)}_`);
-      for (const fix of ai.topFixes || []) {
-        lines.push(`      • *${escapeSlack(fix.title)}*`);
-        lines.push(`         ↳ ${escapeSlack(fix.action)}`);
-      }
-    }
-
-    if (baseUrl) {
-      lines.push(`   <${baseUrl}/site/${site.id}|View full report →>`);
-    }
-
-    lines.push('');
-  }
-
-  if (regressions && regressions.length > 0) {
-    lines.push('⚠️ *Regression Alerts*');
-    for (const { site, regressions: siteRegs } of regressions) {
-      for (const reg of siteRegs) {
-        lines.push(
-          `   ⬇️ ${escapeSlack(site.name)} — ${reg.category}: ${reg.previous} → ${reg.current} (−${reg.drop})`
-        );
-      }
-    }
-  }
-
-  return { text: lines.join('\n') };
+  const delta = tw - lw;
+  const verdict =
+    delta === 0 ? '— no change' :
+    delta > 0  ? `▲ *+${delta} points*  (better)` :
+                 `▼ *${delta} points*  (worse)`;
+  return `${label}:  ${lw}  →  *${tw}*  ${verdict}`;
 }
 
-export function buildRegressionAlert(siteName, regressions) {
-  const lines = [`🚨 *Regression Alert: ${escapeSlack(siteName)}*`, ''];
-  for (const reg of regressions) {
-    lines.push(`⬇️ ${reg.category}: *${reg.previous}* → *${reg.current}* (−${reg.drop})`);
-  }
-  return { text: lines.join('\n') };
-}
+function vitalTrendRow(label, lastWeekMs, thisWeekMs, unit, lowerIsBetter = true, decimals = 2) {
+  if (lastWeekMs == null && thisWeekMs == null) return null;
+  const fmt = (v) => {
+    if (v == null) return '—';
+    if (unit === 'ms' && v >= 1000) return `${(v / 1000).toFixed(2)}s`;
+    if (unit === 'ms') return `${Math.round(v)}ms`;
+    return v.toFixed(decimals);
+  };
+  const lw = fmt(lastWeekMs);
+  const tw = fmt(thisWeekMs);
+  if (lw === '—' || tw === '—') return `${label}:  ${lw}  →  *${tw}*`;
 
-// Kept for any old imports
-export { formatDeltaPlain };
+  const deltaRaw = (thisWeekMs ?? 0) - (lastWeekMs ?? 0);
+  const isGood = lowerIsBetter ? deltaRaw < 0 : deltaRaw > 0;
+  const magnitude = Math.abs(deltaRaw);
+  const magStr = unit === 'ms' && magnitude >= 1000
+    ? `${(magnitude / 1000).toFixed(2)}s`
+    : unit === 'ms'
+    ? `${Math.round(magnitude)}ms`
+    : magnitude.toFixed(decimals);
+
+  const verdict =
+    deltaRaw === 0 ? '— unchanged' :
+    isGood ? `▲ improved by ${magStr}` :
+             `▼ slower by ${magStr}`;
+  return `${label}:  ${lw}  →  *${tw}*  ${verdict}`;
+}

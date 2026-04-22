@@ -622,3 +622,116 @@ export async function saveSiteAIAnalysis(siteId, markdown) {
     .eq('id', siteId);
   if (error) console.error('saveSiteAIAnalysis failed:', error.message);
 }
+
+// Returns per-site trend data for a 14-day window, split into this-week
+// (last 7 days) and last-week (7 days before that). Shape is ready for
+// buildTrendReport in slack.js.
+//
+// Output: { [siteId]: { site, thisWeek, lastWeek, bestDay, worstDay } }
+//   thisWeek/lastWeek: { scanCount, avgPerf, avgDesktopPerf, avgA11y, avgBP,
+//                        avgSEO, avgLcpMs, avgFcpMs, avgTbtMs, avgCls,
+//                        criticalCount }
+export async function getTrendData(cookieStore, teamId) {
+  const supabase = createServerSupabase(cookieStore);
+
+  const now = Date.now();
+  const sevenDaysAgo = new Date(now - 7 * 86400000).toISOString();
+  const fourteenDaysAgo = new Date(now - 14 * 86400000).toISOString();
+
+  // Get all enabled sites for the team
+  const { data: sites } = await supabase
+    .from('sites')
+    .select('id, name, url, team_id, logo_url, tags')
+    .eq('team_id', teamId);
+  if (!sites?.length) return {};
+
+  const siteIds = sites.map((s) => s.id);
+
+  // Fetch all scan_results in the last 14 days for these sites
+  const { data: rows } = await supabase
+    .from('scan_results')
+    .select('site_id, strategy, performance, accessibility, best_practices, seo, fcp, lcp, tbt, cls, audits, scanned_at')
+    .in('site_id', siteIds)
+    .gte('scanned_at', fourteenDaysAgo);
+  if (!rows) return {};
+
+  function parseMs(displayValue) {
+    if (!displayValue) return null;
+    const s = String(displayValue).toLowerCase().replace(/,/g, '').trim();
+    const n = parseFloat(s);
+    if (isNaN(n)) return null;
+    if (s.endsWith('ms')) return n;
+    if (s.endsWith('s')) return n * 1000;
+    return n;
+  }
+
+  function aggregate(rowsForSiteInRange) {
+    if (rowsForSiteInRange.length === 0) return null;
+    const mobile = rowsForSiteInRange.filter((r) => r.strategy === 'mobile');
+    const desktop = rowsForSiteInRange.filter((r) => r.strategy === 'desktop');
+
+    const avg = (arr, field) => {
+      const vals = arr.map((r) => r[field]).filter((v) => v != null);
+      if (vals.length === 0) return null;
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    };
+    const avgParsed = (arr, field) => {
+      const vals = arr.map((r) => parseMs(r[field])).filter((v) => v != null);
+      if (vals.length === 0) return null;
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    };
+
+    // Take the most recent mobile scan's critical count as this period's "critical count"
+    const newestMobile = mobile.sort((a, b) => new Date(b.scanned_at) - new Date(a.scanned_at))[0];
+    const criticalCount = newestMobile?.audits?.critical?.length || 0;
+
+    return {
+      scanCount: rowsForSiteInRange.length,
+      avgPerf: avg(mobile, 'performance'),
+      avgDesktopPerf: avg(desktop, 'performance'),
+      avgA11y: avg(mobile, 'accessibility'),
+      avgBP: avg(mobile, 'best_practices'),
+      avgSEO: avg(mobile, 'seo'),
+      avgLcpMs: avgParsed(mobile, 'lcp'),
+      avgFcpMs: avgParsed(mobile, 'fcp'),
+      avgTbtMs: avgParsed(mobile, 'tbt'),
+      avgCls: avgParsed(mobile, 'cls'),
+      criticalCount,
+    };
+  }
+
+  // Group rows by site
+  const bySite = new Map();
+  for (const s of sites) bySite.set(s.id, { site: s, rows: [] });
+  for (const r of rows) bySite.get(r.site_id)?.rows.push(r);
+
+  const result = {};
+  for (const [siteId, { site, rows: siteRows }] of bySite) {
+    const thisWeekRows = siteRows.filter((r) => r.scanned_at >= sevenDaysAgo);
+    const lastWeekRows = siteRows.filter((r) => r.scanned_at < sevenDaysAgo);
+
+    // Best/worst day across all scans this week, by mobile performance
+    const mobileThisWeek = thisWeekRows.filter((r) => r.strategy === 'mobile');
+    let bestDay = null;
+    let worstDay = null;
+    for (const r of mobileThisWeek) {
+      if (r.performance == null) continue;
+      if (!bestDay || r.performance > bestDay.perf) {
+        bestDay = { dateIso: r.scanned_at, strategy: 'mobile', perf: r.performance };
+      }
+      if (!worstDay || r.performance < worstDay.perf) {
+        worstDay = { dateIso: r.scanned_at, strategy: 'mobile', perf: r.performance };
+      }
+    }
+
+    result[siteId] = {
+      site,
+      thisWeek: aggregate(thisWeekRows),
+      lastWeek: aggregate(lastWeekRows),
+      bestDay,
+      worstDay,
+    };
+  }
+
+  return result;
+}
