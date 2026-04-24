@@ -4,23 +4,31 @@ const PSI_API_URL = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
 // Core API Call
 // ============================================
 
-// Single attempt with a generous timeout. Vercel Pro gives 300s per
-// function; we use 240s for PSI, leaving 60s for DB save + overhead.
-// If PSI can't return in 240s, no retry is going to help either.
-// The only retry we do is for transient 5xx (Lighthouse crashes) —
-// those genuinely do resolve on a second try.
+// Vercel Pro gives us 300s per function. We give PSI nearly all of it —
+// 295s — leaving a 5s margin so we catch the AbortSignal error and return
+// a proper JSON 500 with details, instead of Vercel silently killing the
+// function and returning a bare 504.
+//
+// We retry once on transient 5xx (Lighthouse crashes) — but only if there's
+// at least 20s of budget left, otherwise the retry can't finish either and
+// we're just burning the user's wait.
+const DEFAULT_PSI_TIMEOUT_MS = 295000;
+const MIN_RETRY_BUDGET_MS = 20000;
+const RETRY_WAIT_MS = 2000;
+
 export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
-  const { apiKey: overrideKey, timeoutMs = 240000 } = opts;
+  const { apiKey: overrideKey, timeoutMs = DEFAULT_PSI_TIMEOUT_MS } = opts;
 
   const apiKey = overrideKey || process.env.GOOGLE_PSI_API_KEY;
   if (!apiKey) throw new Error('No PageSpeed API key configured. Add one in Settings > Integrations.');
 
   const categoryUrl = `${PSI_API_URL}?url=${encodeURIComponent(url)}&key=${apiKey}&strategy=${strategy}&category=performance&category=accessibility&category=best-practices&category=seo`;
+  const startedAt = Date.now();
 
-  async function attempt() {
-    const start = Date.now();
-    const response = await fetch(categoryUrl, { signal: AbortSignal.timeout(timeoutMs) });
-    const elapsed = Date.now() - start;
+  async function attempt(remainingMs) {
+    const attemptStart = Date.now();
+    const response = await fetch(categoryUrl, { signal: AbortSignal.timeout(remainingMs) });
+    const elapsed = Date.now() - attemptStart;
     if (!response.ok) {
       const body = await response.text();
       const err = new Error(`PageSpeed API error (${response.status}) after ${elapsed}ms: ${body.slice(0, 200)}`);
@@ -34,17 +42,21 @@ export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
   }
 
   try {
-    return await attempt();
+    return await attempt(timeoutMs);
   } catch (err) {
-    // Only retry once on transient 5xx (Lighthouse crashes). Timeouts are
-    // not retried — if PSI couldn't finish in 240s, a retry won't either,
-    // and we'd just eat the budget.
+    // Only retry on transient 5xx (Lighthouse crashes). Timeouts are not
+    // retried — if PSI couldn't finish in 295s, a retry won't either.
     const is5xx = err?.status && err.status >= 500;
     const isTransientMessage = /Lighthouse returned error|fetch failed|ECONNRESET/i.test(String(err?.message || ''));
     if (!is5xx && !isTransientMessage) throw err;
 
-    await new Promise((r) => setTimeout(r, 2000));
-    const result = await attempt();
+    // Don't retry if we'd blow past Vercel's 300s function budget.
+    const elapsed = Date.now() - startedAt;
+    const remaining = timeoutMs - elapsed - RETRY_WAIT_MS;
+    if (remaining < MIN_RETRY_BUDGET_MS) throw err;
+
+    await new Promise((r) => setTimeout(r, RETRY_WAIT_MS));
+    const result = await attempt(remaining);
     result._retried = 1;
     return result;
   }
