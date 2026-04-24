@@ -116,7 +116,7 @@ export default async function HistoryPage({ searchParams }) {
             Current · Perf
           </span>
           <span
-            className={`font-serif text-[56px] leading-none tracking-tight ${
+            className={`font-serif text-[40px] md:text-[56px] leading-none tracking-tight ${
               latest?.performance >= 90
                 ? 'text-good'
                 : latest?.performance >= 50
@@ -151,7 +151,7 @@ export default async function HistoryPage({ searchParams }) {
             Avg LCP · latest
           </span>
           <span
-            className={`font-serif text-[56px] leading-none tracking-tight ${
+            className={`font-serif text-[40px] md:text-[56px] leading-none tracking-tight ${
               latest?.avg_lcp_ms && latest.avg_lcp_ms <= 2500
                 ? 'text-good'
                 : latest?.avg_lcp_ms && latest.avg_lcp_ms <= 4000
@@ -168,7 +168,7 @@ export default async function HistoryPage({ searchParams }) {
           <span className="text-[11px] uppercase tracking-[0.12em] font-semibold text-muted">
             Open issues
           </span>
-          <span className="font-serif text-[56px] leading-none tracking-tight text-warn">
+          <span className="font-serif text-[40px] md:text-[56px] leading-none tracking-tight text-warn">
             {openIssues}
           </span>
           <span className="text-[12px] text-muted">Critical + improvement · latest</span>

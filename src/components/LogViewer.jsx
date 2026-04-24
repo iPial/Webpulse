@@ -302,7 +302,7 @@ function StatCard({ label, value, tone }) {
       <div className="text-[11px] uppercase tracking-[0.1em] font-semibold text-muted">
         {label}
       </div>
-      <div className={`font-serif text-[34px] leading-none tracking-tight mt-1 ${toneClass}`}>
+      <div className={`font-serif text-[26px] md:text-[34px] leading-none tracking-tight mt-1 ${toneClass}`}>
         {value}
       </div>
     </Card>

@@ -7,17 +7,15 @@ import { usePathname, useRouter } from 'next/navigation';
 /**
  * <PageShell> — redesigned sidebar + main layout for authenticated pages.
  *
- * Coexists with the legacy <AppShell> + <Sidebar>. Pages opt into the
- * redesign by rendering their own <PageShell> inside the page component.
- * (AppShell is still the route-level wrapper; it just renders children
- * unchanged, and each reskinned page swaps in <PageShell> as its own top element.)
- *
- * Keeps LiveClock and a user-card (with sign-out) — the same functionality
- * the legacy Sidebar has, just restyled.
+ * Responsive behavior:
+ *   - ≥ lg (1024px): 240px vertical sidebar on the left, main content on right.
+ *     Sidebar includes LiveClock + UserCard at bottom.
+ *   - < lg: horizontal top bar (brand, nav links, user avatar with sign-out).
+ *     LiveClock hidden — not enough horizontal room and less useful on phones.
  *
  * Usage:
  *   <PageShell>
- *     <Topbar eyebrow="…" title="Overview" subtitle="…" actions={…} />
+ *     <Topbar … />
  *     <BentoGrid>…</BentoGrid>
  *   </PageShell>
  */
@@ -32,11 +30,11 @@ const NAV = [
 export default function PageShell({ children, className = '' }) {
   return (
     <div
-      className={`app-shell-bg grid grid-cols-[240px_1fr] min-h-screen ${className}`}
+      className={`app-shell-bg min-h-screen lg:grid lg:grid-cols-[240px_1fr] ${className}`}
       style={{ fontFamily: 'var(--font-inter), ui-sans-serif, system-ui, sans-serif' }}
     >
       <Sidebar />
-      <main className="p-[32px] min-w-0">{children}</main>
+      <main className="p-4 md:p-6 lg:p-[32px] min-w-0 overflow-x-hidden">{children}</main>
     </div>
   );
 }
@@ -45,18 +43,36 @@ function Sidebar() {
   const pathname = usePathname() || '/';
 
   return (
-    <aside className="sticky top-0 h-screen flex flex-col p-[20px_16px] bg-paper/60 border-r border-line gap-4">
+    <aside
+      className="
+        lg:sticky lg:top-0 lg:h-screen
+        flex lg:flex-col items-center lg:items-stretch
+        gap-3 lg:gap-4
+        px-3 py-3 lg:p-[20px_16px]
+        bg-paper/60 border-b lg:border-b-0 lg:border-r border-line
+      "
+    >
       {/* Brand */}
-      <Link href="/" className="flex items-center gap-[10px] px-[6px] pb-2">
+      <Link href="/" className="flex items-center gap-[10px] lg:px-[6px] lg:pb-2 shrink-0">
         <span className="w-[32px] h-[32px] rounded-r-sm bg-ink text-lime grid place-items-center font-serif text-[18px] leading-none">
           W
         </span>
-        <span className="font-semibold text-[15px] tracking-tight text-ink">Webpulse</span>
-        <span className="pulse-dot ml-auto" />
+        <span className="hidden sm:inline font-semibold text-[15px] tracking-tight text-ink">
+          Webpulse
+        </span>
+        <span className="pulse-dot hidden sm:inline-block lg:ml-auto" />
       </Link>
 
-      {/* Nav */}
-      <nav className="flex flex-col gap-[2px]">
+      {/* Nav — horizontal on mobile (scrollable if overflow), vertical on desktop */}
+      <nav
+        className="
+          flex lg:flex-col gap-[2px]
+          flex-1 lg:flex-initial
+          overflow-x-auto lg:overflow-x-visible
+          -mx-1 lg:mx-0
+          px-1 lg:px-0
+        "
+      >
         {NAV.map((item) => {
           const active = item.match(pathname);
           const Icon = item.icon;
@@ -64,22 +80,26 @@ function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-[10px] px-[12px] py-[9px] rounded-r-sm text-[13px] font-medium transition-colors ${
-                active
-                  ? 'bg-ink text-surface shadow-ink'
-                  : 'text-ink-2 hover:bg-paper-2'
+              className={`flex items-center gap-[8px] lg:gap-[10px] px-[10px] lg:px-[12px] py-[7px] lg:py-[9px] rounded-r-sm text-[12px] lg:text-[13px] font-medium transition-colors shrink-0 ${
+                active ? 'bg-ink text-surface shadow-ink' : 'text-ink-2 hover:bg-paper-2'
               }`}
             >
-              <Icon className="w-[18px] h-[18px]" active={active} />
-              {item.label}
+              <Icon className="w-[16px] h-[16px] lg:w-[18px] lg:h-[18px]" active={active} />
+              <span className={active ? '' : 'hidden sm:inline'}>{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="flex-1" />
+      {/* Spacer — desktop only */}
+      <div className="hidden lg:block lg:flex-1" />
 
-      <LiveClock />
+      {/* LiveClock — desktop only */}
+      <div className="hidden lg:block">
+        <LiveClock />
+      </div>
+
+      {/* User card — full on desktop, compact avatar-only on mobile */}
       <UserCard />
     </aside>
   );
@@ -146,9 +166,9 @@ function UserCard() {
 
   if (!user) {
     return (
-      <div className="px-[12px] py-[10px] rounded-r-sm bg-surface border border-line shadow-1 flex items-center gap-[10px]">
+      <div className="shrink-0 lg:px-[12px] lg:py-[10px] lg:rounded-r-sm lg:bg-surface lg:border lg:border-line lg:shadow-1 flex items-center gap-[10px]">
         <div className="w-[32px] h-[32px] rounded-full bg-paper-2 animate-pulse shrink-0" />
-        <div className="flex-1 space-y-[6px]">
+        <div className="hidden lg:flex flex-1 flex-col gap-[6px]">
           <div className="h-[8px] rounded bg-paper-2 animate-pulse w-3/4" />
           <div className="h-[6px] rounded bg-paper-2 animate-pulse w-1/2" />
         </div>
@@ -159,24 +179,20 @@ function UserCard() {
   const initials = (user.email || '?').charAt(0).toUpperCase();
 
   return (
-    <div className="px-[12px] py-[10px] rounded-r-sm bg-surface border border-line shadow-1">
-      <div className="flex items-center gap-[10px]">
-        <span className="w-[32px] h-[32px] rounded-full bg-lime text-lime-ink grid place-items-center font-bold text-[12px] shrink-0">
+    <>
+      {/* Mobile: avatar + sign-out icon, no card chrome */}
+      <div className="flex lg:hidden items-center gap-2 shrink-0 ml-auto">
+        <span
+          className="w-[30px] h-[30px] rounded-full bg-lime text-lime-ink grid place-items-center font-bold text-[11px]"
+          title={user.email}
+        >
           {initials}
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-semibold text-ink truncate" title={user.email}>
-            {user.email}
-          </div>
-          <div className="text-[10px] text-muted truncate">
-            {user.role}{user.teamName ? ` · ${user.teamName}` : ''}
-          </div>
-        </div>
         <button
           type="button"
           onClick={handleSignOut}
           disabled={signingOut}
-          className="shrink-0 w-[26px] h-[26px] grid place-items-center rounded-full text-muted hover:text-ink hover:bg-paper-2 disabled:opacity-50"
+          className="w-[30px] h-[30px] grid place-items-center rounded-full text-muted hover:text-ink hover:bg-paper-2 disabled:opacity-50 shrink-0"
           aria-label="Sign out"
           title="Sign out"
         >
@@ -185,7 +201,36 @@ function UserCard() {
           </svg>
         </button>
       </div>
-    </div>
+
+      {/* Desktop: full user card with email + role */}
+      <div className="hidden lg:block px-[12px] py-[10px] rounded-r-sm bg-surface border border-line shadow-1">
+        <div className="flex items-center gap-[10px]">
+          <span className="w-[32px] h-[32px] rounded-full bg-lime text-lime-ink grid place-items-center font-bold text-[12px] shrink-0">
+            {initials}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[12px] font-semibold text-ink truncate" title={user.email}>
+              {user.email}
+            </div>
+            <div className="text-[10px] text-muted truncate">
+              {user.role}{user.teamName ? ` · ${user.teamName}` : ''}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={signingOut}
+            className="shrink-0 w-[26px] h-[26px] grid place-items-center rounded-full text-muted hover:text-ink hover:bg-paper-2 disabled:opacity-50"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <svg className="w-[14px] h-[14px]" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 

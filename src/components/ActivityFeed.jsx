@@ -43,7 +43,7 @@ export default function ActivityFeed({ activity }) {
 
 function ActivityRow({ scan }) {
   return (
-    <div className="grid grid-cols-[80px_1fr_auto_140px] items-center gap-3 py-[10px] px-[10px] rounded-[12px] hover:bg-paper-2/60 transition-colors">
+    <div className="grid grid-cols-[64px_1fr_140px] md:grid-cols-[80px_1fr_auto_140px] items-center gap-2 md:gap-3 py-[10px] px-[10px] rounded-[12px] hover:bg-paper-2/60 transition-colors">
       <span className="font-mono text-[11px] text-muted">{formatTime(scan.scanned_at)}</span>
 
       <div className="flex items-center gap-2 min-w-0">

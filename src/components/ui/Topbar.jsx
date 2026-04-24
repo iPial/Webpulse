@@ -24,12 +24,12 @@ export default function Topbar({ eyebrow, title, subtitle, actions, right, class
           </div>
         )}
         {title && (
-          <h1 className="font-serif text-[40px] leading-[1.05] tracking-tight text-ink">
+          <h1 className="font-serif text-[28px] md:text-[40px] leading-[1.05] tracking-tight text-ink break-words">
             {title}
           </h1>
         )}
         {subtitle && (
-          <p className="text-[14px] text-muted mt-[6px]">{subtitle}</p>
+          <p className="text-[13px] md:text-[14px] text-muted mt-[6px]">{subtitle}</p>
         )}
       </div>
       {(actions || right) && (

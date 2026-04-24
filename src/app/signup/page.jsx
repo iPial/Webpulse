@@ -170,7 +170,7 @@ function SignupForm() {
           <div className="text-[11px] uppercase tracking-[0.14em] font-semibold text-violet">
             Get started
           </div>
-          <h2 className="font-serif text-[32px] leading-tight text-ink mt-[6px] mb-[22px]">
+          <h2 className="font-serif text-[26px] md:text-[32px] leading-tight text-ink mt-[6px] mb-[22px]">
             Create your account
           </h2>
 

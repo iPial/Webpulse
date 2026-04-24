@@ -131,7 +131,7 @@ export default function TeamManager() {
           <div className="text-[11px] uppercase tracking-[0.14em] font-semibold" style={{ color: '#364503' }}>
             Team
           </div>
-          <h2 className="font-serif text-[32px] leading-tight mt-1 text-lime-ink">
+          <h2 className="font-serif text-[24px] md:text-[32px] leading-tight mt-1 text-lime-ink">
             {teamName || 'Your workspace'}
           </h2>
           <p className="text-[13px]" style={{ color: '#364503' }}>

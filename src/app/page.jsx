@@ -95,14 +95,14 @@ export default async function OverviewPage() {
                 At a glance
               </div>
               <div className="flex items-baseline gap-3 mt-2 flex-wrap">
-                <span className="font-serif text-[88px] leading-none tracking-tight text-lime">
+                <span className="font-serif text-[56px] md:text-[88px] leading-none tracking-tight text-lime">
                   {totalCritical}
                 </span>
-                <span className="font-serif text-[24px] text-surface/80">
+                <span className="font-serif text-[18px] md:text-[24px] text-surface/80">
                   critical issue{totalCritical !== 1 ? 's' : ''} across all sites
                 </span>
               </div>
-              <p className="text-[14px] mt-3 max-w-[520px]" style={{ color: '#A4A0AB' }}>
+              <p className="text-[13px] md:text-[14px] mt-3 max-w-[520px]" style={{ color: '#A4A0AB' }}>
                 {totalCritical > 0
                   ? "You've got work to do this week. Jump into the flagged sites below."
                   : "Everything's green today — keep it that way by shipping fixes as they're flagged."}
