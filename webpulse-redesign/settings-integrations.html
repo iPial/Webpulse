@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Integrations — Settings — Webpulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/styles.css"/>
+<style>
+  .integ-head { display: flex; align-items: center; gap: 14px; }
+  .integ-icon { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; flex-shrink: 0; font-size: 22px; }
+  .integ-icon.google { background: #fff; border: 1px solid var(--line); }
+  .integ-icon.slack  { background: #4A154B; color: #fff; }
+  .integ-icon.mail   { background: var(--sky); color: var(--cobalt); }
+  .integ-icon.ai     { background: var(--ink); color: var(--lime); }
+  .integ-icon.webhook{ background: #EDE2F8; color: var(--violet); }
+  .integ-icon.ga     { background: #F7AC3A; color: #fff; }
+
+  .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+  .provider { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }
+  .provider.active { background: var(--ink); color: var(--surface); border-color: var(--ink); box-shadow: var(--shadow-ink); }
+  .provider.active .logo { background: var(--lime); color: var(--ink); }
+  .provider .logo { width: 28px; height: 28px; border-radius: 8px; background: var(--paper-2); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+  .provider .name { font-weight: 600; font-size: 13px; }
+
+  .switch-btn { position: relative; width: 44px; height: 24px; background: var(--paper-2); border-radius: 999px; border: 1px solid var(--line-2); cursor: pointer; transition: background .2s var(--ease); }
+  .switch-btn::after { content:""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-1); transition: left .2s var(--ease); }
+  .switch-btn.on { background: var(--lime); border-color: var(--lime-deep); }
+  .switch-btn.on::after { left: 22px; background: var(--ink); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">W</div><div class="brand-name">Webpulse</div><span class="brand-dot"></span>
+    </div>
+    <nav class="nav">
+      <a href="overview.html"><svg class="nav-icon i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Overview</a>
+      <a href="history.html"><svg class="nav-icon i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>History</a>
+      <a href="logs.html"><svg class="nav-icon i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Logs</a>
+      <a href="settings.html" class="active"><svg class="nav-icon i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0 1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3 2 2 0 1 1-2.8-2.8 1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8 2 2 0 1 1 2.8-2.8 1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0 1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3 2 2 0 1 1 2.8 2.8 1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4 1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+    </nav>
+    <div class="user-card">
+      <div class="user-avatar">W</div>
+      <div class="col" style="gap: 0;"><div class="user-name">WPDeveloper</div><div class="user-email">support@wpdev.com</div></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title">
+        <div class="eyebrow">Admin</div>
+        <h1>Settings</h1>
+        <p>Configure notifications, API keys, and exports.</p>
+      </div>
+      <div class="tabs">
+        <a href="settings.html">Sites</a>
+        <a href="settings-team.html">Team</a>
+        <a href="settings-integrations.html" class="active">Integrations</a>
+      </div>
+    </header>
+
+    <section class="bento">
+
+      <!-- PageSpeed API -->
+      <div class="card span-6">
+        <div class="integ-head">
+          <div class="integ-icon google">
+            <svg width="28" height="28" viewBox="0 0 24 24"><path fill="#4285F4" d="M12 10v3.9h6.8c-.3 1.7-2 5-6.8 5-4.1 0-7.5-3.4-7.5-7.5S7.9 3.9 12 3.9c2.4 0 4 1 4.9 1.9l3.3-3.2C18.2 .8 15.4 0 12 0 5.4 0 0 5.4 0 12s5.4 12 12 12c6.9 0 11.5-4.9 11.5-11.7 0-.8-.1-1.4-.2-2.2H12z"/></svg>
+          </div>
+          <div class="grow">
+            <h3 class="h3">Google PageSpeed API</h3>
+            <p class="muted mt-1" style="font-size: 12px;">Required to run Lighthouse scans.</p>
+          </div>
+          <span class="pill pill-good">● Configured</span>
+        </div>
+        <div class="divider"></div>
+        <div class="form-row">
+          <label class="label">API key</label>
+          <div class="row gap-2">
+            <input class="input grow mono" value="AIza•••••••••••••••••••••••••••••••Bk4" type="password"/>
+            <button class="btn">Show</button>
+            <button class="btn btn-ink">Save</button>
+          </div>
+        </div>
+        <p class="muted mt-3" style="font-size: 11px;">Get a key from <a style="color: var(--cobalt)">console.cloud.google.com</a> → APIs → PageSpeed Insights.</p>
+      </div>
+
+      <!-- AI Provider -->
+      <div class="card card-ink span-6">
+        <div class="integ-head">
+          <div class="integ-icon ai"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M8 10c1-1.3 2.5-2 4-2s3 .7 4 2M8 14c1 1.3 2.5 2 4 2s3-.7 4-2"/></svg></div>
+          <div class="grow">
+            <h3 class="h3" style="color: var(--surface);">AI Provider</h3>
+            <p style="color: #A4A0AB; font-size: 12px;" class="mt-1">API key for AI-powered recommendations.</p>
+          </div>
+          <span class="pill pill-lime">● Configured</span>
+        </div>
+
+        <div class="provider-grid">
+          <div class="provider active">
+            <div class="logo">A</div>
+            <div>
+              <div class="name">Anthropic</div>
+              <div style="font-size: 11px; color: #A4A0AB;">Claude Sonnet</div>
+            </div>
+          </div>
+          <div class="provider">
+            <div class="logo" style="background: #10A37F; color: #fff;">○</div>
+            <div>
+              <div class="name" style="color: var(--surface);">OpenAI</div>
+              <div style="font-size: 11px; color: #A4A0AB;">GPT-4o</div>
+            </div>
+          </div>
+          <div class="provider">
+            <div class="logo" style="background: #4285F4; color: #fff;">G</div>
+            <div>
+              <div class="name" style="color: var(--surface);">Gemini</div>
+              <div style="font-size: 11px; color: #A4A0AB;">2.5 Pro</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row mt-4">
+          <label class="label" style="color: var(--surface);">API key</label>
+          <div class="row gap-2">
+            <input class="input grow mono" value="sk-ant-•••••••••••••••••••••••••••••••••••••dfG" type="password" style="background: rgba(255,255,255,0.06); color: var(--surface); border-color: rgba(255,255,255,0.12);"/>
+            <button class="btn" style="background: rgba(255,255,255,0.08); color: var(--surface); border-color: rgba(255,255,255,0.12);">Show</button>
+            <button class="btn btn-primary">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slack -->
+      <div class="card span-6">
+        <div class="integ-head">
+          <div class="integ-icon slack"><span style="font-size: 22px;">#</span></div>
+          <div class="grow">
+            <h3 class="h3">Slack</h3>
+            <p class="muted mt-1" style="font-size: 12px;">Daily digests & regression alerts.</p>
+          </div>
+          <button class="switch-btn on" aria-label="Enable Slack"></button>
+        </div>
+        <div class="divider"></div>
+        <div class="form-row">
+          <label class="label">Webhook URL</label>
+          <div class="row gap-2">
+            <input class="input grow mono" value="https://hooks.slack.com/services/T••••/•••••" type="password"/>
+            <button class="btn">Test</button>
+            <button class="btn btn-ink">Save</button>
+          </div>
+        </div>
+        <div class="form-row mt-3">
+          <label class="label">Default channel</label>
+          <input class="input mono" value="#perf-alerts"/>
+        </div>
+        <div class="row gap-2 mt-3">
+          <span class="pill">Daily 9:00 AM</span>
+          <span class="pill pill-good">Sends on regression</span>
+          <span class="pill">Includes sparkline image</span>
+        </div>
+      </div>
+
+      <!-- Email -->
+      <div class="card span-6">
+        <div class="integ-head">
+          <div class="integ-icon mail"><svg class="i i-lg" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg></div>
+          <div class="grow">
+            <h3 class="h3">Email reports</h3>
+            <p class="muted mt-1" style="font-size: 12px;">Scan reports via email, per recipient.</p>
+          </div>
+          <button class="switch-btn on" aria-label="Enable Email"></button>
+        </div>
+        <div class="divider"></div>
+        <div class="form-row">
+          <label class="label">Recipients</label>
+          <div class="row gap-2 wrap">
+            <span class="pill pill-ink" style="gap: 8px;">team@wpdev.com <span style="cursor: pointer;">×</span></span>
+            <span class="pill pill-ink" style="gap: 8px;">perf-alerts@wpdev.com <span style="cursor: pointer;">×</span></span>
+            <input class="input" placeholder="Add email…" style="flex: 1; min-width: 180px; padding: 6px 12px; border-radius: 999px; font-size: 12px;"/>
+          </div>
+        </div>
+        <div class="row gap-2 mt-3">
+          <select class="select grow"><option>Weekly digest (Mon 9am)</option><option>Daily digest</option><option>Only on regression</option></select>
+          <button class="btn">Test</button>
+          <button class="btn btn-ink">Save</button>
+        </div>
+      </div>
+
+      <!-- Webhooks -->
+      <div class="card span-6">
+        <div class="integ-head">
+          <div class="integ-icon webhook"><svg class="i i-lg" viewBox="0 0 24 24"><path d="M18 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M9 15l3-3 3 3"/></svg></div>
+          <div class="grow">
+            <h3 class="h3">Webhooks</h3>
+            <p class="muted mt-1" style="font-size: 12px;">Fire any endpoint on scan events.</p>
+          </div>
+          <span class="pill" style="background: var(--paper-2); border-color: var(--line-2);">Not configured</span>
+        </div>
+        <div class="divider"></div>
+        <p class="muted" style="font-size: 13px;">POST JSON to your own endpoint whenever a scan finishes or a regression triggers. Signed with <span class="mono">X-Webpulse-Signature</span>.</p>
+        <button class="btn btn-ink mt-3">Set up webhook</button>
+      </div>
+
+      <!-- GA connector -->
+      <div class="card span-6">
+        <div class="integ-head">
+          <div class="integ-icon ga"><svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="6" width="4" height="15" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></svg></div>
+          <div class="grow">
+            <h3 class="h3">Google Analytics 4</h3>
+            <p class="muted mt-1" style="font-size: 12px;">Correlate CWV wins with real-user metrics.</p>
+          </div>
+          <span class="pill" style="background: var(--paper-2); border-color: var(--line-2);">Optional</span>
+        </div>
+        <div class="divider"></div>
+        <p class="muted" style="font-size: 13px;">Connect your GA4 property to overlay bounce-rate and session-length improvements after each scan win.</p>
+        <button class="btn btn-ink mt-3">Connect GA4</button>
+      </div>
+
+    </section>
+  </main>
+</div>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,3 +1,6 @@
+import Card from '@/components/ui/Card';
+import Pill from '@/components/ui/Pill';
+
 const VITAL_META = {
   fcp: {
     label: 'First Contentful Paint',
@@ -54,15 +57,18 @@ export default function VitalsPanel({ result }) {
   ];
 
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-      <h3 className="text-sm font-semibold text-white mb-4">Core Web Vitals</h3>
-      <div className="space-y-4">
+    <Card>
+      <h3 className="font-semibold text-[15px] text-ink">Core Web Vitals</h3>
+      <p className="text-[12px] text-muted mt-0.5">
+        Threshold bars compare to Google&apos;s good / needs-work / poor thresholds.
+      </p>
+      <div className="flex flex-col gap-5 mt-4">
         {vitals.map(({ key, value }) => {
           if (!value) return null;
           return <VitalRow key={key} vitalKey={key} value={value} />;
         })}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -70,48 +76,49 @@ function VitalRow({ vitalKey, value }) {
   const meta = VITAL_META[vitalKey];
   const numericMs = parseDisplayValue(vitalKey, value);
   const status = getStatus(vitalKey, numericMs);
-  const statusColor = status === 'good' ? '#10B981' : status === 'average' ? '#F59E0B' : '#EF4444';
-  const statusText = status === 'good' ? 'Good' : status === 'average' ? 'Needs Work' : 'Poor';
-  const statusBg = status === 'good' ? 'bg-green-500/10 text-green-400' : status === 'average' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-400';
+  const statusColor =
+    status === 'good' ? 'var(--good)' : status === 'average' ? 'var(--warn)' : 'var(--bad)';
+  const statusText =
+    status === 'good' ? 'Good' : status === 'average' ? 'Needs work' : 'Poor';
+  const statusVariant =
+    status === 'good' ? 'good' : status === 'average' ? 'warn' : 'bad';
+  const valueColor =
+    status === 'good' ? 'text-good' : status === 'average' ? 'text-warn' : 'text-bad';
 
-  // Calculate bar width (0-100%) relative to poor threshold
   const maxVal = meta.poor * 1.5;
   const barWidth = numericMs !== null ? Math.min(100, (numericMs / maxVal) * 100) : 0;
 
   return (
     <div className="group">
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-300">{meta.label}</span>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusBg}`}>
-            {statusText}
-          </span>
+          <span className="text-[13px] font-medium text-ink">{meta.label}</span>
+          <Pill variant={statusVariant}>{statusText}</Pill>
         </div>
-        <span className="text-sm font-bold" style={{ color: statusColor }}>{value}</span>
+        <span className={`font-serif text-[22px] leading-none tracking-tight ${valueColor}`}>
+          {value}
+        </span>
       </div>
 
-      {/* Progress bar with threshold markers */}
-      <div className="relative h-2 rounded-full bg-gray-800 overflow-hidden mb-1.5">
+      {/* Threshold bar */}
+      <div className="relative h-[6px] rounded-full bg-paper-2 overflow-hidden mt-2">
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{ width: `${barWidth}%`, backgroundColor: statusColor }}
         />
-        {/* Good threshold marker */}
         <div
-          className="absolute top-0 h-full w-px bg-green-500/40"
+          className="absolute top-0 h-full w-px bg-good/40"
           style={{ left: `${(meta.good / maxVal) * 100}%` }}
         />
-        {/* Poor threshold marker */}
         <div
-          className="absolute top-0 h-full w-px bg-red-500/40"
+          className="absolute top-0 h-full w-px bg-bad/40"
           style={{ left: `${(meta.poor / maxVal) * 100}%` }}
         />
       </div>
 
-      {/* Threshold labels */}
-      <div className="flex justify-between text-[9px] text-gray-600 mb-1">
+      <div className="flex justify-between font-mono text-[10px] text-muted mt-1">
         <span>0</span>
-        <span style={{ marginLeft: `${(meta.good / maxVal) * 100 - 5}%` }}>
+        <span>
           Good: {vitalKey === 'cls' ? meta.good : `${meta.good / 1000}s`}
         </span>
         <span>
@@ -119,15 +126,15 @@ function VitalRow({ vitalKey, value }) {
         </span>
       </div>
 
-      {/* Description + fix (shown on hover/always for poor) */}
-      <div className={`text-xs text-gray-500 mt-1 ${status === 'poor' ? 'block' : 'hidden group-hover:block'}`}>
-        <p>{meta.desc}</p>
-        {status !== 'good' && (
-          <p className="text-gray-400 mt-0.5">
-            <span className="font-medium">Fix: </span>{meta.fix}
+      {status !== 'good' && (
+        <div className="text-[12px] text-muted mt-2">
+          <p>{meta.desc}</p>
+          <p className="text-ink-2 mt-1">
+            <span className="font-semibold">Fix: </span>
+            {meta.fix}
           </p>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

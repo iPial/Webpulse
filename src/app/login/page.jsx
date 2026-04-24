@@ -1,14 +1,18 @@
 'use client';
 
 import { Suspense, useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { createBrowserSupabase } from '@/lib/supabase';
+import Button from '@/components/ui/Button';
+import { Input, Field } from '@/components/ui/Field';
+import Sparkline from '@/components/ui/charts/Sparkline';
 
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <main className="flex min-h-screen items-center justify-center">
-        <p className="text-gray-400">Loading...</p>
+      <main className="bg-paper min-h-screen flex items-center justify-center">
+        <p className="text-muted">Loading…</p>
       </main>
     }>
       <LoginForm />
@@ -46,12 +50,16 @@ function LoginForm() {
 
   if (!configured) {
     return (
-      <main className="flex min-h-screen items-center justify-center px-4">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold mb-4">Webpulse</h1>
-          <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-4 text-sm text-yellow-400 max-w-md">
-            <p className="font-medium mb-2">Supabase not configured</p>
-            <p className="text-yellow-500">Set <code className="bg-yellow-500/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> and <code className="bg-yellow-500/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in your <code className="bg-yellow-500/10 px-1 rounded">.env.local</code> file.</p>
+      <main className="bg-paper min-h-screen flex items-center justify-center px-4">
+        <div className="text-center max-w-md">
+          <h1 className="font-serif text-[44px] text-ink mb-3">Webpulse</h1>
+          <div className="rounded-r-md bg-warn-bg border border-warn/30 p-5 text-sm text-[#8A5A00] text-left">
+            <p className="font-semibold mb-2">Supabase not configured</p>
+            <p>
+              Set <code className="font-mono text-[12px] bg-warn/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> and{' '}
+              <code className="font-mono text-[12px] bg-warn/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in your{' '}
+              <code className="font-mono text-[12px] bg-warn/10 px-1 rounded">.env.local</code> file.
+            </p>
           </div>
         </div>
       </main>
@@ -112,9 +120,7 @@ function LoginForm() {
     storeRedirect();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
     if (error) setError(error.message);
   }
@@ -123,9 +129,7 @@ function LoginForm() {
     storeRedirect();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
     if (error) setError(error.message);
   }
@@ -133,140 +137,202 @@ function LoginForm() {
   const isPasswordMode = mode === 'signin' || mode === 'signup';
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold">Webpulse</h1>
-          <p className="mt-2 text-gray-400">
-            {mode === 'signup' ? 'Create your account' : 'Sign in to your account'}
-          </p>
+    <div
+      className="app-shell-bg min-h-screen grid lg:grid-cols-[1.05fr_1fr] grid-cols-1"
+      style={{ fontFamily: 'var(--font-inter), ui-sans-serif, system-ui, sans-serif' }}
+    >
+      {/* LEFT — hero */}
+      <aside className="hidden lg:flex flex-col justify-between p-[56px_64px]">
+        <div className="flex items-center gap-[10px]">
+          <span className="w-[32px] h-[32px] rounded-r-sm bg-ink text-lime grid place-items-center font-serif text-[18px] leading-none">
+            W
+          </span>
+          <span className="font-semibold text-[15px] tracking-tight text-ink">Webpulse</span>
+          <span className="pulse-dot" />
         </div>
 
-        {error && (
-          <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
-            {error}
-          </div>
-        )}
+        <div>
+          <span className="text-[11px] uppercase tracking-[0.15em] font-semibold text-muted">
+            {mode === 'signup' ? 'Get started' : mode === 'magic' ? 'Magic link sign-in' : 'Welcome back'}
+          </span>
+          <h1 className="font-serif text-[52px] leading-[1.05] tracking-tight text-ink mt-3">
+            Give your site a{' '}
+            <span
+              className="inline-block px-[10px] rounded-[10px] shadow-lime"
+              style={{ background: 'var(--lime)', color: 'var(--lime-ink)', transform: 'rotate(-1deg)' }}
+            >
+              pulse
+            </span>
+            .<br />
+            Keep it <em className="text-orange not-italic font-serif italic">alive.</em>
+          </h1>
 
-        {message && (
-          <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-3 text-sm text-green-400">
-            {message}
+          {/* mini preview */}
+          <div
+            className="mt-[38px] rounded-r-xl p-[22px] shadow-ink"
+            style={{ background: 'var(--ink)', color: 'var(--surface)' }}
+          >
+            <div className="grid grid-cols-2 gap-[14px]">
+              <PreviewTile label="Performance (mobile)" num="43" color="var(--orange)" data={[30, 38, 42, 28, 38, 57, 43]} />
+              <PreviewTile label="Accessibility" num="84" color="var(--warn)" data={[84, 84, 84, 84, 81, 84, 84]} />
+              <PreviewTile label="Best Practices" num="100" color="var(--good)" data={[100, 100, 100, 100, 100, 100, 100]} />
+              <PreviewTile label="SEO" num="92" color="var(--good)" data={[85, 92, 92, 92, 92, 92, 92]} />
+            </div>
           </div>
-        )}
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-1">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              required
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+        <div className="text-[12px] text-muted">
+          Trusted by WordPress agencies for automated PageSpeed monitoring.
+        </div>
+      </aside>
+
+      {/* RIGHT — auth form */}
+      <main className="flex items-center justify-center px-[20px] py-[40px]">
+        <div
+          className="w-full max-w-[440px] rounded-r-xl bg-surface border border-line shadow-3 p-[36px]"
+        >
+          <div className="text-[11px] uppercase tracking-[0.14em] font-semibold text-orange">
+            {mode === 'signup' ? 'Get started' : mode === 'magic' ? 'Passwordless' : 'Welcome back'}
           </div>
+          <h2 className="font-serif text-[32px] leading-tight text-ink mt-[6px] mb-[22px]">
+            {mode === 'signup' ? 'Create your account' : 'Sign in to Webpulse'}
+          </h2>
 
-          {isPasswordMode && (
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-1">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={mode === 'signup' ? 'Min 6 characters' : 'Your password'}
-                required
-                minLength={6}
-                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+          {error && (
+            <div className="rounded-r-sm bg-bad-bg border border-bad/20 p-3 text-[13px] text-bad mb-4">
+              {error}
+            </div>
+          )}
+          {message && (
+            <div className="rounded-r-sm bg-good-bg border border-good/20 p-3 text-[13px] text-good mb-4">
+              {message}
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading
-              ? (mode === 'magic' ? 'Sending link...' : mode === 'signup' ? 'Creating account...' : 'Signing in...')
-              : (mode === 'magic' ? 'Send Magic Link' : mode === 'signup' ? 'Create Account' : 'Sign In')
-            }
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-[12px]">
+            <Field label="Email" htmlFor="email">
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                required
+              />
+            </Field>
 
-        {/* Mode switcher */}
-        <div className="text-center text-sm space-y-2">
-          {mode === 'signin' && (
-            <>
-              <p className="text-gray-500">
-                Don&apos;t have an account?{' '}
-                <button onClick={() => { setMode('signup'); setError(''); setMessage(''); }} className="text-blue-400 hover:text-blue-300">
-                  Sign up
-                </button>
-              </p>
-              <p className="text-gray-500">
-                <button onClick={() => { setMode('magic'); setError(''); setMessage(''); }} className="text-gray-400 hover:text-gray-300">
-                  Use magic link instead
-                </button>
-              </p>
-            </>
-          )}
-          {mode === 'signup' && (
-            <p className="text-gray-500">
-              Already have an account?{' '}
-              <button onClick={() => { setMode('signin'); setError(''); setMessage(''); }} className="text-blue-400 hover:text-blue-300">
-                Sign in
-              </button>
-            </p>
-          )}
-          {mode === 'magic' && (
-            <p className="text-gray-500">
-              <button onClick={() => { setMode('signin'); setError(''); setMessage(''); }} className="text-gray-400 hover:text-gray-300">
+            {isPasswordMode && (
+              <Field label="Password" htmlFor="pw">
+                <Input
+                  id="pw"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={mode === 'signup' ? 'Min 6 characters' : '••••••••'}
+                  autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                  required
+                  minLength={6}
+                />
+              </Field>
+            )}
+
+            <Button type="submit" variant="ink" size="lg" disabled={loading} className="w-full justify-center mt-1">
+              {loading
+                ? (mode === 'magic' ? 'Sending link…' : mode === 'signup' ? 'Creating account…' : 'Signing in…')
+                : (mode === 'magic' ? 'Send magic link' : mode === 'signup' ? 'Create account' : 'Sign in')}
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14M13 6l6 6-6 6" />
+              </svg>
+            </Button>
+
+            {mode === 'signin' && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                onClick={() => { setMode('magic'); setError(''); setMessage(''); }}
+                className="w-full justify-center"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M3 8l9 6 9-6" />
+                </svg>
+                Use magic link instead
+              </Button>
+            )}
+            {mode === 'magic' && (
+              <Button
+                type="button" variant="ghost" size="md"
+                onClick={() => { setMode('signin'); setError(''); setMessage(''); }}
+                className="w-full justify-center"
+              >
                 Use password instead
-              </button>
-            </p>
-          )}
-        </div>
+              </Button>
+            )}
+          </form>
 
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-700" />
+          <div className="relative my-[18px] text-center">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-line" />
+            </div>
+            <span className="relative inline-block bg-surface px-2 text-[12px] text-muted">or continue with</span>
           </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="bg-gray-950 px-2 text-gray-500">or continue with</span>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={handleGoogleLogin}
-            className="flex items-center justify-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm font-medium text-gray-300 hover:bg-gray-700 transition-colors"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 24 24">
-              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
-              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
-              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-            </svg>
-            Google
-          </button>
-          <button
-            onClick={handleGitHubLogin}
-            className="flex items-center justify-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm font-medium text-gray-300 hover:bg-gray-700 transition-colors"
-          >
-            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z" />
-            </svg>
-            GitHub
-          </button>
+          <div className="grid grid-cols-2 gap-[10px]">
+            <Button type="button" onClick={handleGoogleLogin} className="justify-center">
+              <svg width="16" height="16" viewBox="0 0 48 48">
+                <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C33.7 6.1 29.1 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z" />
+                <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 16.1 19 13 24 13c3 0 5.8 1.1 7.9 3l5.7-5.7C33.7 6.1 29.1 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+                <path fill="#4CAF50" d="M24 44c5.1 0 9.6-1.9 13.1-5l-6-5.1c-2 1.4-4.5 2.2-7.1 2.2-5.2 0-9.7-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+                <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.7 2.1-2 4-3.7 5.3l6 5.1C41.3 35 44 29.9 44 24c0-1.3-.1-2.7-.4-3.9z" />
+              </svg>
+              Google
+            </Button>
+            <Button type="button" onClick={handleGitHubLogin} className="justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.3.5-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.2 2.9.1 3.2.8.9 1.2 2 1.2 3.2 0 4.6-2.8 5.7-5.5 6 .4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3" />
+              </svg>
+              GitHub
+            </Button>
+          </div>
+
+          <div className="text-center text-[13px] text-muted mt-[22px]">
+            {mode === 'signup' ? (
+              <>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => { setMode('signin'); setError(''); setMessage(''); }}
+                  className="text-ink font-medium hover:underline"
+                >
+                  Sign in
+                </button>
+              </>
+            ) : (
+              <>
+                Don&apos;t have an account?{' '}
+                <Link href="/signup" className="text-ink font-medium hover:underline">
+                  Sign up free
+                </Link>
+              </>
+            )}
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
+  );
+}
+
+function PreviewTile({ label, num, color, data }) {
+  return (
+    <div
+      className="rounded-[16px] p-[14px]"
+      style={{ background: 'rgba(255,255,255,0.05)' }}
+    >
+      <div className="text-[11px]" style={{ color: '#A4A0AB' }}>{label}</div>
+      <div className="font-serif text-[40px] leading-none tracking-tight" style={{ color }}>{num}</div>
+      <Sparkline data={data} color={color} height={40} />
+    </div>
   );
 }

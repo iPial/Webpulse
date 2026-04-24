@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Webpulse — Your site's heartbeat, measured daily</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/styles.css"/>
+<style>
+  .landing {
+    max-width: 1240px; margin: 0 auto; padding: 20px 24px 80px;
+    background:
+      radial-gradient(900px 500px at -10% 0%, rgba(214,255,60,0.35), transparent 55%),
+      radial-gradient(700px 520px at 110% 10%, rgba(123,92,255,0.18), transparent 55%),
+      radial-gradient(600px 500px at 50% 130%, rgba(255,92,53,0.12), transparent 60%);
+  }
+  .nav-top {
+    display: flex; align-items: center; gap: 18px;
+    padding: 14px 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    box-shadow: var(--shadow-2);
+    position: sticky; top: 16px; z-index: 10;
+  }
+  .nav-top .links { display: flex; gap: 22px; margin-left: 22px; }
+  .nav-top .links a { color: var(--ink-2); font-weight: 500; font-size: 14px; }
+  .nav-top .links a:hover { color: var(--ink); }
+  .nav-top .actions { margin-left: auto; display: flex; gap: 8px; }
+
+  .hero {
+    display: grid; grid-template-columns: 1.2fr 1fr;
+    gap: 14px; margin-top: 28px; align-items: stretch;
+  }
+  @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+
+  .hero-left {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl);
+    padding: 44px; box-shadow: var(--shadow-2); position: relative;
+    display: flex; flex-direction: column; justify-content: space-between;
+    min-height: 520px;
+  }
+  .hero-title { font-family: 'Instrument Serif', serif; font-size: 78px; line-height: 1; letter-spacing: -0.04em; font-weight: 400; margin: 14px 0 10px; }
+  .hero-title em { font-style: italic; color: var(--orange); }
+  .hero-title .lime-box { display: inline-block; background: var(--lime); color: var(--lime-ink); padding: 0 14px; border-radius: 16px; transform: rotate(-1.5deg); box-shadow: var(--shadow-lime); }
+  .hero-sub { color: var(--muted); font-size: 17px; max-width: 520px; line-height: 1.55; }
+  .hero-cta { display: flex; gap: 10px; margin-top: 26px; }
+  .hero-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-top: 36px; padding-top: 28px; border-top: 1px dashed var(--line);
+  }
+  .stat .num { font-family: 'Instrument Serif', serif; font-size: 42px; line-height: 1; display: block; }
+  .stat .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
+
+  .hero-right {
+    display: grid; grid-template-rows: 1fr 1fr; gap: 14px;
+  }
+  .preview {
+    background: var(--ink); color: var(--surface); border-radius: var(--r-xl);
+    padding: 24px; box-shadow: var(--shadow-ink); position: relative; overflow: hidden;
+  }
+  .preview .browser-dots { display: flex; gap: 6px; margin-bottom: 16px; }
+  .preview .browser-dots span { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.15); }
+  .preview .browser-dots span:first-child { background: var(--orange); }
+  .preview .browser-dots span:nth-child(2) { background: var(--warn); }
+  .preview .browser-dots span:nth-child(3) { background: var(--good); }
+  .preview .url { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A4A0AB; margin-bottom: 16px; }
+  .preview h4 { font-size: 22px; font-family: 'Instrument Serif', serif; font-weight: 400; letter-spacing: -0.02em; margin-bottom: 14px; }
+  .preview .stack { display: flex; gap: 10px; flex-wrap: wrap; }
+  .mini-score {
+    background: rgba(255,255,255,0.07); border-radius: 16px; padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 2px; min-width: 80px;
+  }
+  .mini-score .n { font-family: 'Instrument Serif', serif; font-size: 34px; line-height: 1; }
+  .mini-score .l { font-size: 11px; color: #A4A0AB; }
+
+  .feature-grid {
+    margin-top: 14px; display: grid;
+    grid-template-columns: repeat(12, 1fr); gap: 14px;
+  }
+  .feature-grid > * { padding: 22px; border-radius: var(--r-lg); }
+  .feature-grid .feature { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-1); }
+  .feature-grid h3 { font-size: 20px; font-family: 'Instrument Serif', serif; font-weight: 400; letter-spacing: -0.02em; margin-bottom: 6px; }
+  .feature-grid p { color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .feature-icon {
+    width: 42px; height: 42px; border-radius: 14px;
+    display: grid; place-items: center;
+    background: var(--paper-2);
+    margin-bottom: 14px;
+  }
+  .span-4 { grid-column: span 4; }
+  .span-6 { grid-column: span 6; }
+  .span-8 { grid-column: span 8; }
+  .span-12 { grid-column: span 12; }
+  @media (max-width: 900px) {
+    .feature-grid > * { grid-column: span 12 !important; }
+    .hero-title { font-size: 58px; }
+  }
+
+  .fancy-divider {
+    display: flex; align-items: center; gap: 14px; margin: 48px 0 24px;
+    color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 600;
+  }
+  .fancy-divider::before, .fancy-divider::after {
+    content: ""; flex: 1; height: 1px; background: var(--line);
+  }
+
+  .pricing {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 14px;
+  }
+  @media (max-width: 900px) { .pricing { grid-template-columns: 1fr; } }
+  .plan { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 28px; box-shadow: var(--shadow-1); }
+  .plan.pro { background: var(--ink); color: var(--surface); border-color: var(--ink); box-shadow: var(--shadow-ink); position: relative; }
+  .plan.pro::before { content: "Most popular"; position: absolute; top: 16px; right: 16px; background: var(--lime); color: var(--lime-ink); padding: 3px 10px; border-radius: var(--r-pill); font-size: 11px; font-weight: 700; }
+  .plan h3 { font-size: 18px; margin-bottom: 4px; }
+  .plan .price { font-family: 'Instrument Serif', serif; font-size: 56px; line-height: 1; margin: 14px 0; }
+  .plan .price span { font-family: 'Inter', sans-serif; font-size: 14px; color: var(--muted); }
+  .plan.pro .price span { color: #A4A0AB; }
+  .plan ul { margin: 20px 0; display: flex; flex-direction: column; gap: 10px; }
+  .plan li { display: flex; gap: 8px; font-size: 13px; color: var(--muted); }
+  .plan.pro li { color: #CDCAD2; }
+  .plan .check { color: var(--good); flex-shrink: 0; }
+  .plan.pro .check { color: var(--lime); }
+
+  .footer {
+    margin-top: 72px; padding: 32px 0; border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+    color: var(--muted); font-size: 13px;
+  }
+
+  .marquee-tag {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; background: var(--paper-2); border: 1px dashed var(--line-2);
+    border-radius: var(--r-pill); font-size: 12px; color: var(--ink-2); font-weight: 500;
+  }
+
+  .badge-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+
+  /* Floating orbs on hero */
+  .hero-left::after {
+    content: ""; position: absolute; right: -60px; top: -60px;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, var(--lime) 0%, transparent 70%);
+    filter: blur(40px); opacity: 0.6; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div class="landing">
+
+  <!-- Nav -->
+  <nav class="nav-top">
+    <div class="brand">
+      <div class="brand-mark">W</div>
+      <div class="brand-name">Webpulse</div>
+      <span class="brand-dot"></span>
+    </div>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#">Changelog</a>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="login.html">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="signup.html">Start free →</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-left">
+      <div>
+        <span class="marquee-tag">
+          <span class="pill-dot" style="background: var(--lime)"></span>
+          Live scans every 60 seconds · new scheduler
+        </span>
+        <h1 class="hero-title">
+          Your site's<br/>
+          <em>heartbeat,</em><br/>
+          <span class="lime-box">measured</span> daily.
+        </h1>
+        <p class="hero-sub">
+          Webpulse watches Lighthouse, Core Web Vitals, and a hundred WordPress-savvy signals — then tells you (and your team) what to fix, in plain English.
+        </p>
+      </div>
+
+      <div>
+        <div class="hero-cta">
+          <a href="signup.html" class="btn btn-ink btn-lg">
+            Start monitoring — free
+            <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a href="#how" class="btn btn-lg">
+            <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none"/></svg>
+            Watch the 90s tour
+          </a>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat"><span class="num">14.2k</span><span class="lbl">Sites watched</span></div>
+          <div class="stat"><span class="num">–41%</span><span class="lbl">Avg LCP improved</span></div>
+          <div class="stat"><span class="num">60s</span><span class="lbl">Scheduler tick</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-right">
+      <div class="preview">
+        <div class="browser-dots"><span></span><span></span><span></span></div>
+        <div class="url">webpulse.app/site/3 · betterdocs.co · mobile scan</div>
+        <h4>Mobile scorecard</h4>
+        <div class="stack">
+          <div class="mini-score"><span class="n" style="color: var(--orange)">43</span><span class="l">Perf</span></div>
+          <div class="mini-score"><span class="n" style="color: var(--warn)">84</span><span class="l">A11y</span></div>
+          <div class="mini-score"><span class="n" style="color: var(--good)">100</span><span class="l">Best Prac.</span></div>
+          <div class="mini-score"><span class="n" style="color: var(--good)">92</span><span class="l">SEO</span></div>
+        </div>
+        <div class="mt-4 row between" style="color:#A4A0AB; font-size:12px;">
+          <span>14-day trend · last scan 7h ago</span>
+          <span class="mono">LCP 17.3s</span>
+        </div>
+        <svg class="spark mt-2" data-spark="30,38,42,28,38,57,43" data-color="#D6FF3C"></svg>
+      </div>
+
+      <div class="card card-lime" style="padding: 28px;">
+        <div class="eyebrow" style="color:#364503">AI Suggestions</div>
+        <h3 style="font-family:'Instrument Serif',serif; font-weight:400; font-size:26px; letter-spacing:-0.02em; margin-top: 6px;">
+          "Enable Lazy Load in WP Rocket → Media.<br/>
+          Expected LCP win: <strong style="background:var(--ink); color:var(--lime); padding:0 8px; border-radius:6px;">-8.4s</strong>"
+        </h3>
+        <div class="row mt-4 gap-2">
+          <span class="pill" style="background: rgba(14,13,16,0.1); border-color: rgba(14,13,16,0.2); color: var(--lime-ink);">🚀 WP Rocket tuned</span>
+          <span class="pill" style="background: rgba(14,13,16,0.1); border-color: rgba(14,13,16,0.2); color: var(--lime-ink);">Claude · Sonnet</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature grid -->
+  <div class="fancy-divider">What Webpulse does</div>
+
+  <section id="features" class="feature-grid">
+    <div class="feature span-6 card-ink" style="background: var(--ink); color: var(--surface); border-color: var(--ink); box-shadow: var(--shadow-ink);">
+      <div class="feature-icon" style="background: rgba(214,255,60,0.12); color: var(--lime);">
+        <svg class="i i-lg" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0"/><path d="M12 7v5l3 3"/></svg>
+      </div>
+      <h3 style="color: var(--surface);">Scheduled scans, exact to the minute.</h3>
+      <p style="color:#A4A0AB;">Daily, weekly, monthly cadences with QStash precision — and a 60s dashboard fallback that catches anything that slips.</p>
+      <div class="row mt-4 gap-2">
+        <span class="pill pill-lime">Daily</span>
+        <span class="pill" style="background:rgba(255,255,255,0.08); color:var(--surface); border-color:rgba(255,255,255,0.15);">Weekly</span>
+        <span class="pill" style="background:rgba(255,255,255,0.08); color:var(--surface); border-color:rgba(255,255,255,0.15);">Monthly</span>
+      </div>
+    </div>
+    <div class="feature span-6">
+      <div class="feature-icon" style="background: var(--rose); color: var(--orange);">
+        <svg class="i i-lg" viewBox="0 0 24 24"><path d="M12 2l2.5 6.5L21 10l-5 4.5L17.5 22L12 18.5L6.5 22L8 14.5L3 10l6.5-1.5z"/></svg>
+      </div>
+      <h3>Lighthouse + WordPress intuition.</h3>
+      <p>Every Core Web Vital, every audit — translated into WP Rocket paths and plugin-level actions you can actually apply.</p>
+    </div>
+
+    <div class="feature span-4">
+      <div class="feature-icon" style="background: var(--sky); color: var(--cobalt);">
+        <svg class="i i-lg" viewBox="0 0 24 24"><path d="M4 4h16v4H4zM4 12h10v4H4zM4 20h16v1H4z"/></svg>
+      </div>
+      <h3>History that talks back.</h3>
+      <p>Month-over-month diffs, change arrows, and 14-day trend sparks — so wins and regressions never get lost.</p>
+    </div>
+    <div class="feature span-4">
+      <div class="feature-icon" style="background: var(--lime); color: var(--lime-ink);">
+        <svg class="i i-lg" viewBox="0 0 24 24"><path d="M21 8V7a2 2 0 0 0-2-2h-5.5l-2-2h-4A2 2 0 0 0 5.5 5"/><path d="M3 11h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      </div>
+      <h3>Team-ready.</h3>
+      <p>Invite engineers, designers, support. Per-seat roles, Slack & email digests per site.</p>
+    </div>
+    <div class="feature span-4">
+      <div class="feature-icon" style="background: #EDE2F8; color: var(--violet);">
+        <svg class="i i-lg" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
+      <h3>Pick your AI.</h3>
+      <p>Claude, GPT, or Gemini — swap providers any time. Your keys, your budget, your brain.</p>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <div class="fancy-divider" id="pricing">Honest pricing</div>
+  <section class="pricing">
+    <div class="plan">
+      <h3>Starter</h3>
+      <p class="muted" style="font-size:13px;">For personal sites and side projects.</p>
+      <div class="price">$0<span> /month</span></div>
+      <a class="btn" href="signup.html" style="width:100%; justify-content:center;">Start free</a>
+      <ul>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> 2 sites, daily scans</li>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> Core Web Vitals + Lighthouse</li>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> 14-day history</li>
+      </ul>
+    </div>
+    <div class="plan pro">
+      <h3 style="color:var(--lime)">Pulse</h3>
+      <p style="color:#A4A0AB; font-size:13px;">For agencies and WP shops.</p>
+      <div class="price">$29<span> /month</span></div>
+      <a class="btn btn-primary" href="signup.html" style="width:100%; justify-content:center;">Start 14-day trial</a>
+      <ul>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> 25 sites, every cadence</li>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> AI recommendations (Claude/GPT/Gemini)</li>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> Slack + email digests</li>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> Unlimited history</li>
+      </ul>
+    </div>
+    <div class="plan">
+      <h3>Scale</h3>
+      <p class="muted" style="font-size:13px;">For teams watching many sites.</p>
+      <div class="price">$99<span> /month</span></div>
+      <a class="btn" href="signup.html" style="width:100%; justify-content:center;">Talk to us</a>
+      <ul>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> 100+ sites</li>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> SSO, audit logs, API</li>
+        <li><svg class="i check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg> Priority queue, 5-min scans</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div>© 2026 Webpulse — made for WordPress speed nerds.</div>
+    <div class="row gap-4">
+      <a href="#">Privacy</a>
+      <a href="#">Terms</a>
+      <a href="#">Status</a>
+      <a href="#">Docs</a>
+    </div>
+  </footer>
+</div>
+<script src="assets/app.js"></script>
+</body>
+</html>

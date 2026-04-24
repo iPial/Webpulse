@@ -1,19 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Pill from '@/components/ui/Pill';
+import { Input, Select, Field } from '@/components/ui/Field';
 
 export default function IntegrationsManager({ teamId, initialIntegrations }) {
   const [integrations, setIntegrations] = useState(initialIntegrations);
   const [psiApiKey, setPsiApiKey] = useState(
     integrations.find((i) => i.type === 'pagespeed')?.config?.apiKey || ''
   );
-  const aiIntegrationInit = integrations.find((i) => i.type === 'ai_provider') || integrations.find((i) => i.type === 'anthropic');
-  const [aiProvider, setAiProvider] = useState(
-    aiIntegrationInit?.config?.provider || 'anthropic'
-  );
-  const [aiApiKey, setAiApiKey] = useState(
-    aiIntegrationInit?.config?.apiKey || ''
-  );
+  const aiIntegrationInit =
+    integrations.find((i) => i.type === 'ai_provider') ||
+    integrations.find((i) => i.type === 'anthropic');
+  const [aiProvider, setAiProvider] = useState(aiIntegrationInit?.config?.provider || 'anthropic');
+  const [aiApiKey, setAiApiKey] = useState(aiIntegrationInit?.config?.apiKey || '');
   const [slackUrl, setSlackUrl] = useState(
     integrations.find((i) => i.type === 'slack')?.config?.webhookUrl || ''
   );
@@ -27,7 +29,6 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
   async function saveIntegration(type, config) {
     setSaving(type);
     setMessage('');
-
     const existing = integrations.find((i) => i.type === type);
 
     try {
@@ -91,229 +92,267 @@ export default function IntegrationsManager({ teamId, initialIntegrations }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: !enabled }),
     });
-
     if (res.ok) {
       const { integration } = await res.json();
-      setIntegrations((prev) =>
-        prev.map((i) => (i.id === id ? integration : i))
-      );
+      setIntegrations((prev) => prev.map((i) => (i.id === id ? integration : i)));
     }
   }
 
   const psiIntegration = integrations.find((i) => i.type === 'pagespeed');
-  const aiIntegration = integrations.find((i) => i.type === 'ai_provider') || integrations.find((i) => i.type === 'anthropic');
+  const aiIntegration =
+    integrations.find((i) => i.type === 'ai_provider') ||
+    integrations.find((i) => i.type === 'anthropic');
   const slackIntegration = integrations.find((i) => i.type === 'slack');
   const emailIntegration = integrations.find((i) => i.type === 'email');
 
   const aiProviderOptions = [
-    { value: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...' },
-    { value: 'openai', label: 'OpenAI (GPT)', placeholder: 'sk-...' },
-    { value: 'gemini', label: 'Google (Gemini)', placeholder: 'AIza...' },
+    { value: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-…' },
+    { value: 'openai', label: 'OpenAI (GPT)', placeholder: 'sk-…' },
+    { value: 'gemini', label: 'Google (Gemini)', placeholder: 'AIza…' },
   ];
-  const currentProviderOption = aiProviderOptions.find((o) => o.value === aiProvider) || aiProviderOptions[0];
+  const currentProviderOption =
+    aiProviderOptions.find((o) => o.value === aiProvider) || aiProviderOptions[0];
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       {message && (
-        <div className={`rounded-lg p-3 text-sm ${
-          message.startsWith('Error')
-            ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-            : 'bg-green-500/10 border border-green-500/20 text-green-400'
-        }`}>
+        <div
+          className={`rounded-r-sm p-3 text-[13px] border ${
+            message.startsWith('Error')
+              ? 'bg-bad-bg border-bad/20 text-bad'
+              : 'bg-good-bg border-good/20 text-good'
+          }`}
+        >
           {message}
         </div>
       )}
 
-      {/* Google PageSpeed API Key */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center">
-              <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-white">Google PageSpeed API</h3>
-              <p className="text-xs text-gray-400">Required for scanning sites. Get a key from Google Cloud Console.</p>
-            </div>
-          </div>
-          {psiIntegration && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">
-              Configured
-            </span>
-          )}
-        </div>
-        <div className="flex gap-3">
-          <input
-            type="password"
-            value={psiApiKey}
-            onChange={(e) => setPsiApiKey(e.target.value)}
-            placeholder="AIza..."
-            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      <div className="grid md:grid-cols-2 grid-cols-1 gap-6">
+        {/* PageSpeed API */}
+        <Card>
+          <IntegHead
+            icon={<GoogleIcon />}
+            iconBg="bg-surface border border-line"
+            title="Google PageSpeed API"
+            subtitle="Required to run Lighthouse scans."
+            configured={!!psiIntegration}
           />
-          <button
-            onClick={() => saveIntegration('pagespeed', { apiKey: psiApiKey })}
-            disabled={saving === 'pagespeed' || !psiApiKey}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {saving === 'pagespeed' ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-      </div>
+          <div className="h-px bg-line my-3" />
+          <Field label="API key">
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                value={psiApiKey}
+                onChange={(e) => setPsiApiKey(e.target.value)}
+                placeholder="AIza…"
+                className="flex-1 font-mono"
+              />
+              <Button
+                variant="ink"
+                onClick={() => saveIntegration('pagespeed', { apiKey: psiApiKey })}
+                disabled={saving === 'pagespeed' || !psiApiKey}
+              >
+                {saving === 'pagespeed' ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </Field>
+          <p className="text-[11px] text-muted mt-2">
+            Get a key from console.cloud.google.com → APIs → PageSpeed Insights.
+          </p>
+        </Card>
 
-      {/* AI Provider */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
-              <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-white">AI Provider</h3>
-              <p className="text-xs text-gray-400">API key for AI-powered recommendations. Choose your preferred provider.</p>
-            </div>
-          </div>
-          {aiIntegration && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">
-              Configured
-            </span>
-          )}
-        </div>
-        <div className="space-y-3">
-          <select
-            value={aiProvider}
-            onChange={(e) => setAiProvider(e.target.value)}
-            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            {aiProviderOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          <div className="flex gap-3">
-            <input
-              type="password"
-              value={aiApiKey}
-              onChange={(e) => setAiApiKey(e.target.value)}
-              placeholder={currentProviderOption.placeholder}
-              className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <button
-              onClick={() => saveIntegration('ai_provider', { provider: aiProvider, apiKey: aiApiKey })}
-              disabled={saving === 'ai_provider' || !aiApiKey}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {saving === 'ai_provider' ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Slack */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
-              <span className="text-purple-400 text-sm font-bold">#</span>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-white">Slack</h3>
-              <p className="text-xs text-gray-400">Daily scan summaries and regression alerts</p>
-            </div>
-          </div>
-          {slackIntegration && (
-            <button
-              onClick={() => toggleIntegration(slackIntegration.id, slackIntegration.enabled)}
-              className={`text-xs px-2 py-0.5 rounded-full ${
-                slackIntegration.enabled
-                  ? 'bg-green-500/10 text-green-400'
-                  : 'bg-gray-800 text-gray-500'
-              }`}
-            >
-              {slackIntegration.enabled ? 'Enabled' : 'Disabled'}
-            </button>
-          )}
-        </div>
-        <div className="flex gap-3">
-          <input
-            type="url"
-            value={slackUrl}
-            onChange={(e) => setSlackUrl(e.target.value)}
-            placeholder="https://hooks.slack.com/services/..."
-            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        {/* AI Provider (ink tile in the mockup) */}
+        <Card variant="ink">
+          <IntegHead
+            icon={<AIIcon />}
+            iconBg="bg-ink text-lime"
+            title="AI Provider"
+            subtitle="API key for AI-powered recommendations."
+            configured={!!aiIntegration}
+            dark
           />
-          <button
-            onClick={() => saveIntegration('slack', { webhookUrl: slackUrl })}
-            disabled={saving === 'slack' || !slackUrl}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {saving === 'slack' ? 'Saving...' : 'Save'}
-          </button>
-          {slackIntegration && (
-            <button
-              onClick={() => testIntegration('slack')}
-              disabled={testing === 'slack'}
-              className="px-3 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {testing === 'slack' ? 'Testing...' : 'Test'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Email */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <span className="text-blue-400 text-sm font-bold">@</span>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-white">Email Reports</h3>
-              <p className="text-xs text-gray-400">Receive scan reports via email</p>
-            </div>
+          <div className="h-px bg-white/10 my-3" />
+          <div className="flex flex-col gap-3">
+            <Field label="Provider" className="[&_label]:text-white/70">
+              <Select
+                value={aiProvider}
+                onChange={(e) => setAiProvider(e.target.value)}
+                className="bg-white/5 text-surface border-white/10"
+              >
+                {aiProviderOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value} className="text-ink">
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="API key" className="[&_label]:text-white/70">
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  value={aiApiKey}
+                  onChange={(e) => setAiApiKey(e.target.value)}
+                  placeholder={currentProviderOption.placeholder}
+                  className="flex-1 font-mono bg-white/5 text-surface border-white/10 placeholder:text-white/40"
+                />
+                <Button
+                  variant="primary"
+                  onClick={() => saveIntegration('ai_provider', { provider: aiProvider, apiKey: aiApiKey })}
+                  disabled={saving === 'ai_provider' || !aiApiKey}
+                >
+                  {saving === 'ai_provider' ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </Field>
           </div>
-          {emailIntegration && (
-            <button
-              onClick={() => toggleIntegration(emailIntegration.id, emailIntegration.enabled)}
-              className={`text-xs px-2 py-0.5 rounded-full ${
-                emailIntegration.enabled
-                  ? 'bg-green-500/10 text-green-400'
-                  : 'bg-gray-800 text-gray-500'
-              }`}
-            >
-              {emailIntegration.enabled ? 'Enabled' : 'Disabled'}
-            </button>
-          )}
-        </div>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={emailList}
-            onChange={(e) => setEmailList(e.target.value)}
-            placeholder="you@example.com, team@example.com"
-            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        </Card>
+
+        {/* Slack */}
+        <Card>
+          <IntegHead
+            icon={<span className="text-[20px] font-bold">#</span>}
+            iconBg="bg-[#4A154B] text-white"
+            title="Slack"
+            subtitle="Daily digests & regression alerts."
+            toggle={slackIntegration ? {
+              on: slackIntegration.enabled,
+              onClick: () => toggleIntegration(slackIntegration.id, slackIntegration.enabled),
+            } : null}
           />
-          <button
-            onClick={() => saveIntegration('email', { emails: emailList })}
-            disabled={saving === 'email' || !emailList}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {saving === 'email' ? 'Saving...' : 'Save'}
-          </button>
-          {emailIntegration && (
-            <button
-              onClick={() => testIntegration('email')}
-              disabled={testing === 'email'}
-              className="px-3 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {testing === 'email' ? 'Testing...' : 'Test'}
-            </button>
-          )}
-        </div>
+          <div className="h-px bg-line my-3" />
+          <Field label="Webhook URL">
+            <div className="flex gap-2 flex-wrap">
+              <Input
+                type="url"
+                value={slackUrl}
+                onChange={(e) => setSlackUrl(e.target.value)}
+                placeholder="https://hooks.slack.com/services/…"
+                className="flex-1 min-w-0 font-mono"
+              />
+              {slackIntegration && (
+                <Button onClick={() => testIntegration('slack')} disabled={testing === 'slack'}>
+                  {testing === 'slack' ? 'Testing…' : 'Test'}
+                </Button>
+              )}
+              <Button
+                variant="ink"
+                onClick={() => saveIntegration('slack', { webhookUrl: slackUrl })}
+                disabled={saving === 'slack' || !slackUrl}
+              >
+                {saving === 'slack' ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </Field>
+        </Card>
+
+        {/* Email */}
+        <Card>
+          <IntegHead
+            icon={<EmailIcon />}
+            iconBg="bg-sky text-cobalt"
+            title="Email reports"
+            subtitle="Scan reports via email, per recipient."
+            toggle={emailIntegration ? {
+              on: emailIntegration.enabled,
+              onClick: () => toggleIntegration(emailIntegration.id, emailIntegration.enabled),
+            } : null}
+          />
+          <div className="h-px bg-line my-3" />
+          <Field label="Recipients" hint="Comma-separated list of email addresses.">
+            <div className="flex gap-2 flex-wrap">
+              <Input
+                type="text"
+                value={emailList}
+                onChange={(e) => setEmailList(e.target.value)}
+                placeholder="you@example.com, team@example.com"
+                className="flex-1 min-w-0"
+              />
+              {emailIntegration && (
+                <Button onClick={() => testIntegration('email')} disabled={testing === 'email'}>
+                  {testing === 'email' ? 'Testing…' : 'Test'}
+                </Button>
+              )}
+              <Button
+                variant="ink"
+                onClick={() => saveIntegration('email', { emails: emailList })}
+                disabled={saving === 'email' || !emailList}
+              >
+                {saving === 'email' ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </Field>
+        </Card>
       </div>
     </div>
+  );
+}
+
+/* ───── helpers ───── */
+
+function IntegHead({ icon, iconBg, title, subtitle, configured, dark, toggle }) {
+  return (
+    <div className="flex items-center gap-[14px]">
+      <span
+        className={`w-[48px] h-[48px] rounded-r-sm grid place-items-center shrink-0 ${iconBg}`}
+      >
+        {icon}
+      </span>
+      <div className="flex-1">
+        <h3 className={`font-semibold text-[15px] ${dark ? 'text-surface' : 'text-ink'}`}>
+          {title}
+        </h3>
+        <p className={`text-[12px] mt-0.5 ${dark ? 'text-white/60' : 'text-muted'}`}>{subtitle}</p>
+      </div>
+      {configured && (
+        <Pill variant={dark ? 'lime' : 'good'} dot>
+          Configured
+        </Pill>
+      )}
+      {toggle && <SwitchButton on={toggle.on} onClick={toggle.onClick} />}
+    </div>
+  );
+}
+
+function SwitchButton({ on, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative w-[44px] h-[24px] rounded-full border transition-colors ${
+        on ? 'bg-lime border-lime-deep' : 'bg-paper-2 border-line'
+      }`}
+      aria-pressed={on}
+    >
+      <span
+        className={`absolute top-[2px] w-[18px] h-[18px] rounded-full shadow-1 transition-all ${
+          on ? 'left-[22px] bg-ink' : 'left-[2px] bg-surface'
+        }`}
+      />
+    </button>
+  );
+}
+
+/* Icons (inline SVG — no extra deps) */
+function GoogleIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285F4" d="M12 10v3.9h6.8c-.3 1.7-2 5-6.8 5-4.1 0-7.5-3.4-7.5-7.5S7.9 3.9 12 3.9c2.4 0 4 1 4.9 1.9l3.3-3.2C18.2 .8 15.4 0 12 0 5.4 0 0 5.4 0 12s5.4 12 12 12c6.9 0 11.5-4.9 11.5-11.7 0-.8-.1-1.4-.2-2.2H12z" />
+    </svg>
+  );
+}
+function AIIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 10c1-1.3 2.5-2 4-2s3 .7 4 2M8 14c1 1.3 2.5 2 4 2s3-.7 4-2" />
+    </svg>
+  );
+}
+function EmailIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M22 6l-10 7L2 6" />
+    </svg>
   );
 }

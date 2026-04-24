@@ -22,20 +22,21 @@ function SitePillsInner({ sites, currentSiteId, latestScores }) {
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="inline-flex gap-[2px] p-[3px] bg-surface border border-line rounded-r-pill shadow-1">
       {sites.map((site) => {
         const isActive = site.id === currentSiteId;
         const score = latestScores?.[site.id];
-        const dotColor = score >= 90 ? 'bg-green-500' : score >= 50 ? 'bg-yellow-500' : score != null ? 'bg-red-500' : 'bg-gray-600';
+        const dotColor =
+          score >= 90 ? 'bg-good' : score >= 50 ? 'bg-warn' : score != null ? 'bg-bad' : 'bg-line-2';
 
         return (
           <button
             key={site.id}
             onClick={() => handleSelect(site.id)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`inline-flex items-center gap-[6px] px-[14px] py-[7px] rounded-r-pill text-[13px] font-semibold transition-colors ${
               isActive
-                ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                : 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600 hover:text-gray-300'
+                ? 'bg-ink text-surface shadow-ink'
+                : 'text-ink-2 hover:bg-paper-2'
             }`}
           >
             <span className={`w-2 h-2 rounded-full ${dotColor}`} />
