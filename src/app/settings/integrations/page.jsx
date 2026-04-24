@@ -1,7 +1,9 @@
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { ensureTeam, getIntegrations } from '@/lib/db';
 import IntegrationsManager from '@/components/IntegrationsManager';
+import PageShell from '@/components/ui/PageShell';
+import Topbar from '@/components/ui/Topbar';
+import Tabs from '@/components/ui/Tabs';
 
 export default async function IntegrationsPage() {
   const cookieStore = await cookies();
@@ -9,23 +11,24 @@ export default async function IntegrationsPage() {
   const integrations = await getIntegrations(cookieStore, team.id);
 
   return (
-    <div>
-      <div className="flex items-center gap-4 mb-8">
-        <Link
-          href="/settings"
-          className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-800 text-gray-400 hover:text-white transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-          </svg>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-white">Integrations</h1>
-          <p className="text-sm text-gray-400 mt-1">Configure notifications and exports</p>
-        </div>
-      </div>
+    <PageShell>
+      <Topbar
+        eyebrow="Admin"
+        title="Settings"
+        subtitle="Configure notifications, API keys, and exports."
+        actions={
+          <Tabs
+            currentPath="/settings/integrations"
+            items={[
+              { label: 'Sites', href: '/settings' },
+              { label: 'Team', href: '/settings/team' },
+              { label: 'Integrations', href: '/settings/integrations' },
+            ]}
+          />
+        }
+      />
 
       <IntegrationsManager teamId={team.id} initialIntegrations={integrations} />
-    </div>
+    </PageShell>
   );
 }

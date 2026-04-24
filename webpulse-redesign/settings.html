@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Settings — Webpulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/styles.css"/>
+<style>
+  .tile-logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-family: 'Instrument Serif', serif; font-size: 20px; }
+  .tile-logo.bd { background: linear-gradient(135deg, #1E40FF, #7B5CFF); }
+  .tile-logo.ea { background: linear-gradient(135deg, #FFA088, #FF5C35); }
+
+  .sched-card { padding: 18px 20px; background: var(--paper-2); border-radius: 14px; border: 1px solid var(--line); display: flex; align-items: center; gap: 16px; }
+  .sched-when { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); }
+  .sched-meta .name { font-weight: 600; font-size: 14px; }
+
+  .field-grid { display: grid; grid-template-columns: 2fr 2fr 1fr 1fr; gap: 10px; align-items: end; }
+  @media (max-width: 900px) { .field-grid { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">W</div><div class="brand-name">Webpulse</div><span class="brand-dot"></span>
+    </div>
+    <nav class="nav">
+      <a href="overview.html"><svg class="nav-icon i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Overview</a>
+      <a href="history.html"><svg class="nav-icon i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>History</a>
+      <a href="logs.html"><svg class="nav-icon i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Logs</a>
+      <a href="settings.html" class="active"><svg class="nav-icon i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0 1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3 2 2 0 1 1-2.8-2.8 1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8 2 2 0 1 1 2.8-2.8 1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0 1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3 2 2 0 1 1 2.8 2.8 1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4 1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+    </nav>
+    <div class="user-card">
+      <div class="user-avatar">W</div>
+      <div class="col" style="gap: 0;">
+        <div class="user-name">WPDeveloper</div>
+        <div class="user-email">support@wpdev.com</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title">
+        <div class="eyebrow">Admin</div>
+        <h1>Settings</h1>
+        <p>Manage your monitored sites, team, and integrations.</p>
+      </div>
+      <div class="tabs">
+        <a href="settings.html" class="active">Sites</a>
+        <a href="settings-team.html">Team</a>
+        <a href="settings-integrations.html">Integrations</a>
+      </div>
+    </header>
+
+    <section class="bento">
+
+      <!-- Scheduled scans hero -->
+      <div class="card card-ink span-8">
+        <div class="row between">
+          <div>
+            <div class="eyebrow" style="color: var(--lime);">Scheduled scans</div>
+            <h2 class="h2" style="color: var(--surface);">Every site, on your clock.</h2>
+            <p class="muted mt-2" style="max-width: 520px; color: #A4A0AB;">
+              QStash fires exact-minute triggers. A 60s dashboard fallback catches anything that slips.
+              Check the <a href="logs.html" style="color: var(--lime);">Logs page</a> for a live trace.
+            </p>
+          </div>
+          <div class="col gap-2">
+            <button class="btn btn-primary btn-sm">Run pending now</button>
+            <button class="btn btn-sm" style="background: rgba(255,255,255,0.08); color: var(--surface); border-color: rgba(255,255,255,0.15);">+ New schedule</button>
+          </div>
+        </div>
+
+        <div class="divider" style="background: rgba(255,255,255,0.1);"></div>
+
+        <div class="col gap-3">
+          <div class="sched-card" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); color: var(--surface);">
+            <div class="tile-logo bd">BD</div>
+            <div class="sched-meta">
+              <div class="name">BetterDocs</div>
+              <div class="sched-when">Fires daily at 12:00 UTC · next Apr 24, 12:00</div>
+            </div>
+            <span class="pill pill-lime" style="margin-left: auto;">● Active</span>
+            <button class="btn btn-sm" style="background: rgba(255,255,255,0.08); color: var(--surface); border-color: rgba(255,255,255,0.15);">Run now</button>
+          </div>
+
+          <div class="sched-card" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); color: var(--surface);">
+            <div class="tile-logo ea">EA</div>
+            <div class="sched-meta">
+              <div class="name">Essential Addons</div>
+              <div class="sched-when">Fires daily at 12:00 UTC · next Apr 24, 12:00</div>
+            </div>
+            <span class="pill pill-lime" style="margin-left: auto;">● Active</span>
+            <button class="btn btn-sm" style="background: rgba(255,255,255,0.08); color: var(--surface); border-color: rgba(255,255,255,0.15);">Run now</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add site -->
+      <div class="card card-lime span-4">
+        <div class="eyebrow" style="color: #364503;">Quick add</div>
+        <h3 class="h3" style="margin: 4px 0 14px;">Watch a new site</h3>
+
+        <div class="col gap-3">
+          <div class="form-row">
+            <label class="label">Site name</label>
+            <input class="input" placeholder="My Website" style="background: #FDFFE9; border-color: #B8E62F;"/>
+          </div>
+          <div class="form-row">
+            <label class="label">URL</label>
+            <input class="input" placeholder="https://example.com" style="background: #FDFFE9; border-color: #B8E62F;"/>
+          </div>
+          <div class="row gap-2">
+            <div class="form-row grow">
+              <label class="label">Frequency</label>
+              <select class="select" style="background: #FDFFE9; border-color: #B8E62F;">
+                <option>Daily</option><option>Weekly</option><option>Monthly</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="label">Logo URL <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400;">(optional)</span></label>
+            <input class="input" placeholder="Auto-detected from favicon" style="background: #FDFFE9; border-color: #B8E62F;"/>
+          </div>
+          <button class="btn btn-ink" style="justify-content:center; margin-top: 6px;">
+            <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Add site
+          </button>
+        </div>
+      </div>
+
+      <!-- Sites table -->
+      <div class="card span-12">
+        <div class="row between mb-4">
+          <div>
+            <h3 class="h3">Your sites</h3>
+            <p class="muted mt-1" style="font-size: 12px;">Click a site to jump to its report</p>
+          </div>
+          <input class="input" placeholder="Search sites…" style="width: 240px; border-radius: 999px;"/>
+        </div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>URL</th>
+              <th>Frequency</th>
+              <th>Next scan</th>
+              <th>Status</th>
+              <th>Integration</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="row gap-3">
+                  <div class="tile-logo bd" style="width: 32px; height: 32px; font-size: 14px; border-radius: 10px;">BD</div>
+                  <div>
+                    <div style="font-weight: 600; font-size: 14px;">BetterDocs</div>
+                    <div class="muted" style="font-size: 11px;">Custom logo · added Apr 1</div>
+                  </div>
+                </div>
+              </td>
+              <td class="mono" style="font-size: 12px; color: var(--muted);">betterdocs.co</td>
+              <td><span class="pill">Daily</span></td>
+              <td class="mono">Apr 24 · 12:00</td>
+              <td><span class="pill pill-good">● Active</span></td>
+              <td><span class="pill" style="background: #FFF5E5; border-color: #FFCF7F; color: #8A5A00;">🚀 WP Rocket</span></td>
+              <td style="text-align: right;">
+                <button class="btn btn-sm">Scan now</button>
+                <button class="btn btn-sm btn-danger" style="margin-left: 6px;">Delete</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="row gap-3">
+                  <div class="tile-logo ea" style="width: 32px; height: 32px; font-size: 14px; border-radius: 10px;">EA</div>
+                  <div>
+                    <div style="font-weight: 600; font-size: 14px;">Essential Addons</div>
+                    <div class="muted" style="font-size: 11px;">Custom logo · added Apr 20</div>
+                  </div>
+                </div>
+              </td>
+              <td class="mono" style="font-size: 12px; color: var(--muted);">essential-addons.com</td>
+              <td><span class="pill">Daily</span></td>
+              <td class="mono">Apr 24 · 12:00</td>
+              <td><span class="pill pill-good">● Active</span></td>
+              <td><span class="pill" style="background: #FFF5E5; border-color: #FFCF7F; color: #8A5A00;">🚀 WP Rocket</span></td>
+              <td style="text-align: right;">
+                <button class="btn btn-sm">Scan now</button>
+                <button class="btn btn-sm btn-danger" style="margin-left: 6px;">Delete</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Account security -->
+      <div class="card span-6">
+        <h3 class="h3">Account</h3>
+        <p class="muted mt-1" style="font-size: 12px;">Password and session settings</p>
+
+        <div class="col gap-3 mt-4">
+          <div class="form-row">
+            <label class="label">Current password</label>
+            <input class="input" type="password" placeholder="••••••••"/>
+          </div>
+          <div class="row gap-3">
+            <div class="form-row grow">
+              <label class="label">New password</label>
+              <input class="input" type="password" placeholder="Min. 10 characters"/>
+            </div>
+            <div class="form-row grow">
+              <label class="label">Confirm</label>
+              <input class="input" type="password" placeholder="Repeat new password"/>
+            </div>
+          </div>
+          <button class="btn btn-ink" style="align-self: flex-start;">Change password</button>
+        </div>
+      </div>
+
+      <!-- Danger zone -->
+      <div class="card span-6" style="border-color: #F5B7B1;">
+        <div class="eyebrow" style="color: var(--bad);">Danger zone</div>
+        <h3 class="h3" style="margin-top: 4px;">Leaving Webpulse?</h3>
+        <p class="muted mt-2" style="font-size: 13px;">
+          Deleting your workspace permanently removes all sites, scan history, AI recommendations and fix tasks.
+          Export data first if you want to keep it.
+        </p>
+        <div class="row gap-2 mt-4">
+          <button class="btn btn-sm">Export workspace</button>
+          <button class="btn btn-sm btn-danger">Delete workspace</button>
+        </div>
+      </div>
+
+    </section>
+  </main>
+</div>
+<script src="assets/app.js"></script>
+</body>
+</html>

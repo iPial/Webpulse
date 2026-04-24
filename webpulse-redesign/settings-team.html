@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Team — Settings — Webpulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/styles.css"/>
+<style>
+  .avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: var(--ink); font-size: 14px; }
+  .a-lime { background: linear-gradient(135deg, var(--lime), #9EE036); color: var(--lime-ink); }
+  .a-orange { background: linear-gradient(135deg, #FFC2AA, var(--orange)); color: #2A0C06; }
+  .a-violet { background: linear-gradient(135deg, #CFC4FF, var(--violet)); color: #13082E; }
+  .a-sky { background: linear-gradient(135deg, var(--sky), #6CB6E7); color: #05263D; }
+  .a-rose { background: linear-gradient(135deg, var(--rose), #F095AE); color: #4A0B25; }
+
+  .role-chip { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 3px 10px; border-radius: 999px; }
+  .role-owner  { background: var(--ink); color: var(--lime); }
+  .role-admin  { background: #EDE2F8; color: var(--violet); }
+  .role-editor { background: var(--good-bg); color: var(--good); }
+  .role-viewer { background: var(--paper-2); color: var(--muted); }
+
+  .seat-bar { height: 10px; background: var(--paper-2); border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.06); }
+  .seat-bar .fill { height: 100%; background: linear-gradient(90deg, var(--lime-deep), var(--lime)); box-shadow: var(--shadow-lime); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">W</div><div class="brand-name">Webpulse</div><span class="brand-dot"></span>
+    </div>
+    <nav class="nav">
+      <a href="overview.html"><svg class="nav-icon i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Overview</a>
+      <a href="history.html"><svg class="nav-icon i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>History</a>
+      <a href="logs.html"><svg class="nav-icon i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Logs</a>
+      <a href="settings.html" class="active"><svg class="nav-icon i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0 1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3 2 2 0 1 1-2.8-2.8 1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8 2 2 0 1 1 2.8-2.8 1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0 1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3 2 2 0 1 1 2.8 2.8 1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4 1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+    </nav>
+    <div class="user-card">
+      <div class="user-avatar">W</div>
+      <div class="col" style="gap: 0;"><div class="user-name">WPDeveloper</div><div class="user-email">support@wpdev.com</div></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title">
+        <div class="eyebrow">Admin</div>
+        <h1>Settings</h1>
+        <p>Manage who has access to your Webpulse workspace.</p>
+      </div>
+      <div class="tabs">
+        <a href="settings.html">Sites</a>
+        <a href="settings-team.html" class="active">Team</a>
+        <a href="settings-integrations.html">Integrations</a>
+      </div>
+    </header>
+
+    <section class="bento">
+      <!-- Seat usage -->
+      <div class="card card-lime span-5">
+        <div class="eyebrow" style="color: #364503;">Seats</div>
+        <h2 class="h2" style="color: #1F2605; margin-top: 4px;">5 of 10 seats used</h2>
+        <p style="color: #364503; font-size: 13px;">Upgrade to <strong>Scale</strong> for unlimited seats + SSO + audit logs.</p>
+        <div class="seat-bar mt-4"><div class="fill" style="width: 50%;"></div></div>
+        <div class="row between mt-2" style="font-size: 11px; color: #364503; font-weight: 600;">
+          <span>5 used</span><span>10 total</span>
+        </div>
+        <div class="row gap-2 mt-4">
+          <button class="btn btn-ink">Invite members</button>
+          <button class="btn">Manage plan</button>
+        </div>
+      </div>
+
+      <!-- Invite form -->
+      <div class="card span-7">
+        <h3 class="h3">Invite by email</h3>
+        <p class="muted mt-1" style="font-size: 12px;">Send a magic-link invitation — no password required.</p>
+
+        <div class="row gap-2 mt-4 wrap">
+          <input class="input grow" placeholder="teammate@company.com" style="min-width: 240px;"/>
+          <select class="select" style="width: 140px;">
+            <option>Editor</option>
+            <option>Admin</option>
+            <option>Viewer</option>
+          </select>
+          <button class="btn btn-ink">
+            <svg class="i" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            Send invite
+          </button>
+        </div>
+
+        <div class="mt-6">
+          <div class="eyebrow">Pending invitations · 2</div>
+          <div class="row gap-3 mt-3" style="padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 14px;">
+            <div class="avatar a-orange">R</div>
+            <div class="grow">
+              <div style="font-weight: 600;">rachel@agency.com</div>
+              <div class="muted" style="font-size: 11px;">Invited 2 hours ago · expires in 7 days</div>
+            </div>
+            <span class="role-chip role-editor">editor</span>
+            <button class="btn btn-sm btn-ghost">Resend</button>
+            <button class="btn btn-sm btn-danger">Revoke</button>
+          </div>
+          <div class="row gap-3 mt-2" style="padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 14px;">
+            <div class="avatar a-sky">M</div>
+            <div class="grow">
+              <div style="font-weight: 600;">marco@studio.dev</div>
+              <div class="muted" style="font-size: 11px;">Invited yesterday · expires in 6 days</div>
+            </div>
+            <span class="role-chip role-viewer">viewer</span>
+            <button class="btn btn-sm btn-ghost">Resend</button>
+            <button class="btn btn-sm btn-danger">Revoke</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Team list -->
+      <div class="card span-12">
+        <div class="row between mb-4">
+          <div>
+            <h3 class="h3">Team members</h3>
+            <p class="muted mt-1" style="font-size: 12px;">Active members with access to this workspace</p>
+          </div>
+          <div class="row gap-2">
+            <input class="input" placeholder="Search members…" style="width: 220px; border-radius: 999px;"/>
+            <select class="select" style="width: 140px; border-radius: 999px;"><option>All roles</option><option>Owner</option><option>Admin</option><option>Editor</option><option>Viewer</option></select>
+          </div>
+        </div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Member</th><th>Email</th><th>Role</th><th>Last active</th><th>Joined</th><th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="row gap-3">
+                  <div class="avatar a-lime">WP</div>
+                  <div>
+                    <div style="font-weight: 600;">WPDeveloper</div>
+                    <div class="muted" style="font-size: 11px;">You</div>
+                  </div>
+                </div>
+              </td>
+              <td class="mono" style="font-size: 12px; color: var(--muted);">support@wpdev.com</td>
+              <td><span class="role-chip role-owner">● owner</span></td>
+              <td class="muted" style="font-size: 12px;">now</td>
+              <td class="muted" style="font-size: 12px;">Apr 1, 2026</td>
+              <td style="text-align: right;"><button class="btn btn-sm btn-ghost">Manage</button></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="row gap-3">
+                  <div class="avatar a-violet">SV</div>
+                  <div><div style="font-weight: 600;">Sarah Volkov</div><div class="muted" style="font-size: 11px;">Lead Engineer</div></div>
+                </div>
+              </td>
+              <td class="mono" style="font-size: 12px; color: var(--muted);">sarah@wpdev.com</td>
+              <td><span class="role-chip role-admin">admin</span></td>
+              <td class="muted" style="font-size: 12px;">12m ago</td>
+              <td class="muted" style="font-size: 12px;">Apr 3, 2026</td>
+              <td style="text-align: right;">
+                <button class="btn btn-sm">Change role</button>
+                <button class="btn btn-sm btn-danger" style="margin-left: 6px;">Remove</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="row gap-3">
+                  <div class="avatar a-orange">KT</div>
+                  <div><div style="font-weight: 600;">Kenji Tanaka</div><div class="muted" style="font-size: 11px;">Designer</div></div>
+                </div>
+              </td>
+              <td class="mono" style="font-size: 12px; color: var(--muted);">kenji@wpdev.com</td>
+              <td><span class="role-chip role-editor">editor</span></td>
+              <td class="muted" style="font-size: 12px;">3h ago</td>
+              <td class="muted" style="font-size: 12px;">Apr 5, 2026</td>
+              <td style="text-align: right;">
+                <button class="btn btn-sm">Change role</button>
+                <button class="btn btn-sm btn-danger" style="margin-left: 6px;">Remove</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="row gap-3">
+                  <div class="avatar a-rose">AM</div>
+                  <div><div style="font-weight: 600;">Ama Mensah</div><div class="muted" style="font-size: 11px;">Support Lead</div></div>
+                </div>
+              </td>
+              <td class="mono" style="font-size: 12px; color: var(--muted);">ama@wpdev.com</td>
+              <td><span class="role-chip role-editor">editor</span></td>
+              <td class="muted" style="font-size: 12px;">yesterday</td>
+              <td class="muted" style="font-size: 12px;">Apr 8, 2026</td>
+              <td style="text-align: right;">
+                <button class="btn btn-sm">Change role</button>
+                <button class="btn btn-sm btn-danger" style="margin-left: 6px;">Remove</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="row gap-3">
+                  <div class="avatar a-sky">LB</div>
+                  <div><div style="font-weight: 600;">Luca Bianchi</div><div class="muted" style="font-size: 11px;">PM (read-only)</div></div>
+                </div>
+              </td>
+              <td class="mono" style="font-size: 12px; color: var(--muted);">luca@wpdev.com</td>
+              <td><span class="role-chip role-viewer">viewer</span></td>
+              <td class="muted" style="font-size: 12px;">2 days ago</td>
+              <td class="muted" style="font-size: 12px;">Apr 12, 2026</td>
+              <td style="text-align: right;">
+                <button class="btn btn-sm">Change role</button>
+                <button class="btn btn-sm btn-danger" style="margin-left: 6px;">Remove</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </section>
+  </main>
+</div>
+<script src="assets/app.js"></script>
+</body>
+</html>

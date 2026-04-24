@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 // Routes that don't require authentication
-const publicRoutes = ['/login', '/auth/callback'];
+const publicRoutes = ['/login', '/signup', '/auth/callback'];
 
 // Routes that use their own auth (cron secret, QStash signature)
 const serviceRoutes = [

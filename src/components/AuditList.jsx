@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import Card from '@/components/ui/Card';
+import Pill from '@/components/ui/Pill';
 
 export default function AuditList({ audits }) {
   if (!audits) return null;
@@ -10,133 +12,135 @@ export default function AuditList({ audits }) {
 
   if (!hasAudits) {
     return (
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-center">
-        <div className="flex items-center justify-center gap-2 text-green-400">
-          <span className="w-2 h-2 rounded-full bg-green-500" />
-          <span className="text-sm font-medium">All audits passing</span>
+      <Card className="text-center">
+        <div className="flex items-center justify-center gap-2 text-good">
+          <span className="w-2 h-2 rounded-full bg-good" />
+          <span className="text-[14px] font-medium">All audits passing</span>
         </div>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {/* Summary bar */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-4 flex items-center gap-6">
-        <span className="text-xs text-gray-400">Audit Summary:</span>
-        {critical.length > 0 && (
-          <span className="flex items-center gap-1.5 text-xs text-red-400">
-            <span className="w-2 h-2 rounded-full bg-red-500" />
-            {critical.length} critical
+      <Card padding="sm" className="!p-[14px_18px]">
+        <div className="flex items-center gap-5 flex-wrap">
+          <span className="text-[11px] uppercase tracking-[0.1em] font-semibold text-muted">
+            Audit summary
           </span>
-        )}
-        {improvement.length > 0 && (
-          <span className="flex items-center gap-1.5 text-xs text-yellow-400">
-            <span className="w-2 h-2 rounded-full bg-yellow-500" />
-            {improvement.length} to improve
-          </span>
-        )}
-        {optional.length > 0 && (
-          <span className="flex items-center gap-1.5 text-xs text-blue-400">
-            <span className="w-2 h-2 rounded-full bg-blue-500" />
-            {optional.length} optional
-          </span>
-        )}
-      </div>
+          {critical.length > 0 && <Pill variant="bad" dot>{critical.length} critical</Pill>}
+          {improvement.length > 0 && (
+            <Pill variant="warn" dot>{improvement.length} to improve</Pill>
+          )}
+          {optional.length > 0 && <Pill dot>{optional.length} optional</Pill>}
+        </div>
+      </Card>
 
       {critical.length > 0 && (
-        <AuditSection title="Fix Immediately" color="red" audits={critical} defaultOpen />
+        <AuditSection title="Fix immediately" tone="bad" audits={critical} defaultOpen />
       )}
       {improvement.length > 0 && (
-        <AuditSection title="Future Improvement" color="yellow" audits={improvement} />
+        <AuditSection title="Future improvement" tone="warn" audits={improvement} />
       )}
       {optional.length > 0 && (
-        <AuditSection title="Optional" color="blue" audits={optional} />
+        <AuditSection title="Optional" tone="default" audits={optional} />
       )}
     </div>
   );
 }
 
-function AuditSection({ title, color, audits, defaultOpen = false }) {
+function AuditSection({ title, tone, audits, defaultOpen = false }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
-  const colors = {
-    red: { bg: 'bg-red-500/5', border: 'border-red-500/20', dot: 'bg-red-500', text: 'text-red-400', hoverBg: 'hover:bg-red-500/10' },
-    yellow: { bg: 'bg-yellow-500/5', border: 'border-yellow-500/20', dot: 'bg-yellow-500', text: 'text-yellow-400', hoverBg: 'hover:bg-yellow-500/10' },
-    blue: { bg: 'bg-blue-500/5', border: 'border-blue-500/20', dot: 'bg-blue-500', text: 'text-blue-400', hoverBg: 'hover:bg-blue-500/10' },
+  const toneMap = {
+    bad: { headerClass: 'text-bad', dot: 'bg-bad', cardClass: '!border-bad/20 !bg-bad-bg/30' },
+    warn: { headerClass: 'text-warn', dot: 'bg-warn', cardClass: '!border-warn/20 !bg-warn-bg/40' },
+    default: { headerClass: 'text-cobalt', dot: 'bg-cobalt', cardClass: '!border-line !bg-sky/20' },
   };
-
-  const c = colors[color];
+  const c = toneMap[tone] || toneMap.default;
 
   return (
-    <div className={`rounded-xl border ${c.border} ${c.bg}`}>
+    <Card className={c.cardClass} padding="sm">
       <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-4"
+        className="w-full flex items-center justify-between p-2"
       >
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${c.dot}`} />
-          <h3 className={`text-sm font-semibold ${c.text}`}>
+          <h3 className={`text-[14px] font-semibold ${c.headerClass}`}>
             {title} ({audits.length})
           </h3>
         </div>
         <svg
-          className={`w-4 h-4 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"
+          className={`w-4 h-4 text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={2}
+          stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
         </svg>
       </button>
 
       {isOpen && (
-        <div className="px-4 pb-4 space-y-1">
+        <div className="pt-2 flex flex-col gap-1">
           {audits.map((audit) => (
-            <AuditRow key={audit.id} audit={audit} colorClass={c} />
+            <AuditRow key={audit.id} audit={audit} />
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
-function AuditRow({ audit, colorClass }) {
+function AuditRow({ audit }) {
   const [expanded, setExpanded] = useState(false);
-  const scoreColor = audit.score < 50 ? 'text-red-400 bg-red-500/10' : 'text-yellow-400 bg-yellow-500/10';
+  const scoreClass =
+    audit.score < 50
+      ? 'bg-bad-bg text-bad'
+      : audit.score < 90
+      ? 'bg-warn-bg text-warn'
+      : 'bg-good-bg text-good';
 
   return (
     <div
-      className={`rounded-lg p-3 cursor-pointer transition-colors ${colorClass.hoverBg}`}
+      className="rounded-[12px] p-[12px] cursor-pointer transition-colors hover:bg-surface/80"
       onClick={() => setExpanded(!expanded)}
     >
       <div className="flex items-start gap-3">
-        {/* Score badge */}
-        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${scoreColor} shrink-0 mt-0.5`}>
+        <span
+          className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded-r-sm ${scoreClass} shrink-0 mt-0.5`}
+        >
           {audit.score}
         </span>
 
         <div className="flex-1 min-w-0">
-          {/* Title + impact */}
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm text-gray-200">{audit.title}</p>
+            <p className="text-[13px] text-ink leading-snug">{audit.title}</p>
             {audit.displayValue && (
-              <span className="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded shrink-0">
+              <span className="font-mono text-[10px] text-muted bg-paper-2 px-1.5 py-0.5 rounded-r-sm shrink-0">
                 {audit.displayValue}
               </span>
             )}
           </div>
 
-          {/* Expanded description */}
           {expanded && audit.description && (
-            <div className="mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800/50 pt-2">
+            <div className="mt-2 text-[12px] text-ink-2 leading-relaxed border-t border-line pt-2">
               {renderDescription(audit.description)}
             </div>
           )}
         </div>
 
-        {/* Expand indicator */}
         <svg
-          className={`w-3.5 h-3.5 text-gray-600 shrink-0 mt-1 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"
+          className={`w-3.5 h-3.5 text-muted shrink-0 mt-1 transition-transform ${
+            expanded ? 'rotate-180' : ''
+          }`}
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={2}
+          stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
         </svg>
@@ -145,7 +149,6 @@ function AuditRow({ audit, colorClass }) {
   );
 }
 
-// Render Lighthouse audit descriptions with clickable links
 function renderDescription(desc) {
   if (!desc) return null;
   const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
@@ -154,7 +157,6 @@ function renderDescription(desc) {
   let match;
 
   while ((match = linkPattern.exec(desc)) !== null) {
-    // Add text before the link
     if (match.index > lastIndex) {
       parts.push(
         <span key={`t-${lastIndex}`}>
@@ -162,14 +164,13 @@ function renderDescription(desc) {
         </span>
       );
     }
-    // Add the link
     parts.push(
       <a
         key={`a-${match.index}`}
         href={match[2]}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+        className="text-cobalt hover:underline underline-offset-2"
         onClick={(e) => e.stopPropagation()}
       >
         {match[1]}
@@ -178,7 +179,6 @@ function renderDescription(desc) {
     lastIndex = match.index + match[0].length;
   }
 
-  // Add remaining text after the last link
   if (lastIndex < desc.length) {
     parts.push(
       <span key={`t-${lastIndex}`}>

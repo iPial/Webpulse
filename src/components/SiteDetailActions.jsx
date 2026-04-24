@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Button from '@/components/ui/Button';
 
 export default function SiteDetailActions({ siteId }) {
   const [scanning, setScanning] = useState(false);
@@ -10,10 +11,9 @@ export default function SiteDetailActions({ siteId }) {
 
   async function handleScan() {
     setScanning(true);
-    setStatus('Scanning mobile...');
+    setStatus('Scanning mobile…');
 
     try {
-      // Mobile scan
       const mobileRes = await fetch('/api/scan/manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -22,9 +22,8 @@ export default function SiteDetailActions({ siteId }) {
       const mobileData = await mobileRes.json();
       if (!mobileRes.ok) throw new Error(mobileData.details || mobileData.error);
 
-      setStatus(`Mobile: ${mobileData.scores.performance} — Scanning desktop...`);
+      setStatus(`Mobile: ${mobileData.scores.performance} — scanning desktop…`);
 
-      // Desktop scan
       const desktopRes = await fetch('/api/scan/manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,7 +34,6 @@ export default function SiteDetailActions({ siteId }) {
 
       setStatus(`Done! Mobile: ${mobileData.scores.performance} / Desktop: ${desktopData.scores.performance}`);
 
-      // Refresh the page to show new data
       setTimeout(() => {
         router.refresh();
         setStatus('');
@@ -48,22 +46,22 @@ export default function SiteDetailActions({ siteId }) {
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 flex-wrap">
       {status && (
-        <span className={`text-xs ${status.startsWith('Error') ? 'text-red-400' : 'text-blue-400'}`}>
+        <span
+          className={`text-[12px] ${
+            status.startsWith('Error') ? 'text-bad' : 'text-cobalt'
+          }`}
+        >
           {scanning && !status.startsWith('Error') && !status.startsWith('Done') && (
-            <span className="inline-block w-3 h-3 border-2 border-gray-600 border-t-blue-400 rounded-full animate-spin mr-1.5 align-middle" />
+            <span className="inline-block w-3 h-3 border-2 border-line border-t-cobalt rounded-full animate-spin mr-1.5 align-middle" />
           )}
           {status}
         </span>
       )}
-      <button
-        onClick={handleScan}
-        disabled={scanning}
-        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-      >
-        {scanning ? 'Scanning...' : 'Scan Now'}
-      </button>
+      <Button variant="ink" onClick={handleScan} disabled={scanning}>
+        {scanning ? 'Scanning…' : 'Scan now'}
+      </Button>
     </div>
   );
 }

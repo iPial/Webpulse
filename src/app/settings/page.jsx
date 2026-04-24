@@ -1,10 +1,13 @@
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { ensureTeam, getSites } from '@/lib/db';
 import SitesManager from '@/components/SitesManager';
 import ScheduleBanner from '@/components/ScheduleBanner';
 import ScheduleManager from '@/components/ScheduleManager';
 import PasswordUpdate from '@/components/PasswordUpdate';
+import PageShell from '@/components/ui/PageShell';
+import Topbar from '@/components/ui/Topbar';
+import Tabs from '@/components/ui/Tabs';
+import Card from '@/components/ui/Card';
 
 export default async function SettingsPage() {
   const cookieStore = await cookies();
@@ -12,36 +15,50 @@ export default async function SettingsPage() {
   const sites = await getSites(cookieStore, team.id);
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Settings</h1>
-          <p className="text-sm text-gray-400 mt-1">Manage your monitored sites</p>
-        </div>
-        <div className="flex gap-2">
-          <Link
-            href="/settings/team"
-            className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
-          >
-            Team
-          </Link>
-          <Link
-            href="/settings/integrations"
-            className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
-          >
-            Integrations
-          </Link>
-        </div>
-      </div>
+    <PageShell>
+      <Topbar
+        eyebrow="Admin"
+        title="Settings"
+        subtitle="Manage your monitored sites, team, and integrations."
+        actions={
+          <Tabs
+            currentPath="/settings"
+            items={[
+              { label: 'Sites', href: '/settings' },
+              { label: 'Team', href: '/settings/team' },
+              { label: 'Integrations', href: '/settings/integrations' },
+            ]}
+          />
+        }
+      />
 
       <ScheduleBanner teamId={team.id} />
-      <ScheduleManager teamId={team.id} />
-      <SitesManager teamId={team.id} initialSites={sites} />
 
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold text-white mb-4">Account</h2>
-        <PasswordUpdate />
+      <div className="flex flex-col gap-6">
+        <ScheduleManager teamId={team.id} />
+        <SitesManager teamId={team.id} initialSites={sites} />
+
+        <div className="grid md:grid-cols-2 grid-cols-1 gap-6 mt-4">
+          <Card>
+            <h3 className="font-semibold text-[15px] text-ink">Account</h3>
+            <p className="text-[12px] text-muted mt-0.5">Password and session settings.</p>
+            <div className="mt-4">
+              <PasswordUpdate />
+            </div>
+          </Card>
+
+          <Card className="!border-bad/30">
+            <div className="text-[11px] uppercase tracking-[0.14em] font-semibold text-bad">
+              Danger zone
+            </div>
+            <h3 className="font-semibold text-[15px] text-ink mt-1">Leaving Webpulse?</h3>
+            <p className="text-[13px] text-muted mt-2">
+              Deleting your workspace permanently removes all sites, scan history,
+              AI recommendations and fix tasks. Export data first if you want to keep it.
+            </p>
+          </Card>
+        </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

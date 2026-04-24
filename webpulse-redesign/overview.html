@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Overview — Webpulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/styles.css"/>
+<style>
+  .site-card { display: flex; flex-direction: column; gap: 18px; min-height: 100%; }
+  .site-head { display: flex; align-items: center; gap: 12px; }
+  .site-logo { width: 44px; height: 44px; border-radius: 14px; background: var(--paper-2); display: grid; place-items: center; font-family: 'Instrument Serif', serif; font-size: 22px; color: var(--ink); border: 1px solid var(--line); }
+  .site-logo.ea { background: linear-gradient(135deg, #FFA088, #FF5C35); color: #fff; border-color: transparent; }
+  .site-logo.bd { background: linear-gradient(135deg, #1E40FF, #7B5CFF); color: #fff; border-color: transparent; }
+  .site-meta h3 { font-size: 18px; }
+  .site-meta a { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+
+  .score-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .score-cell {
+    background: var(--surface-2); border-radius: 14px; padding: 12px;
+    border: 1px solid var(--line); text-align: left;
+  }
+  .score-cell .n { font-family: 'Instrument Serif', serif; font-size: 36px; line-height: 1; letter-spacing: -0.04em; }
+  .score-cell .l { font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .score-cell.bad .n { color: var(--orange); }
+  .score-cell.warn .n { color: var(--warn); }
+  .score-cell.good .n { color: var(--good); }
+
+  .cwv-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .cwv-cell { padding: 10px 12px; border-radius: 12px; background: var(--paper-2); border: 1px dashed var(--line-2); }
+  .cwv-cell .lbl { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .cwv-cell .v { font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 15px; color: var(--ink); }
+  .cwv-cell.bad .v { color: var(--orange); }
+  .cwv-cell.warn .v { color: var(--warn); }
+  .cwv-cell.good .v { color: var(--good); }
+
+  .site-card .foot { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 14px; border-top: 1px dashed var(--line); }
+
+  .activity-row { display: grid; grid-template-columns: 80px 1fr 80px 140px; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-1); align-items: center; }
+  .activity-row + .activity-row { margin-top: 8px; }
+  .activity-row .when { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+  .activity-row .site { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+  .activity-row .lcp { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--ink-2); }
+  .activity-row .scores { display: flex; gap: 4px; justify-content: flex-end; }
+  .activity-row .s { padding: 3px 8px; border-radius: 999px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; }
+  .s-good { background: var(--good-bg); color: var(--good); }
+  .s-warn { background: var(--warn-bg); color: #8A5A00; }
+  .s-bad  { background: var(--bad-bg); color: var(--bad); }
+
+  .day-label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 18px 4px 8px; }
+
+  .hero-glance {
+    grid-column: span 6; background: var(--ink); color: var(--surface); padding: 30px;
+    border-radius: var(--r-xl); box-shadow: var(--shadow-ink); position: relative; overflow: hidden;
+    display: flex; gap: 28px; align-items: center;
+  }
+  .hero-glance::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 85% 20%, rgba(214,255,60,0.25), transparent 50%); pointer-events: none; }
+  .hero-glance h2 { font-family: 'Instrument Serif', serif; font-size: 42px; line-height: 1; letter-spacing: -0.03em; font-weight: 400; }
+  .hero-glance .n-big { font-family: 'Instrument Serif', serif; font-size: 96px; line-height: 1; color: var(--lime); letter-spacing: -0.05em; flex-shrink: 0; }
+  .hero-glance p { color: #A4A0AB; font-size: 14px; line-height: 1.5; margin-top: 10px; max-width: 320px; }
+  .hero-glance .footer { margin-top: 18px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  @media (max-width: 1100px) {
+    .hero-glance { grid-column: span 12; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">W</div>
+      <div class="brand-name">Webpulse</div>
+      <span class="brand-dot"></span>
+    </div>
+    <nav class="nav">
+      <a href="overview.html" class="active"><svg class="nav-icon i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Overview</a>
+      <a href="history.html"><svg class="nav-icon i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>History</a>
+      <a href="logs.html"><svg class="nav-icon i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Logs</a>
+      <a href="settings.html"><svg class="nav-icon i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+    </nav>
+
+    <div class="nav-sub">
+      <div class="eyebrow" style="font-size: 10px; letter-spacing: 0.16em;">Sites</div>
+      <div class="col gap-2 mt-2">
+        <a href="site.html" class="row gap-2" style="padding: 6px 8px; border-radius: 10px; color: var(--ink-2);">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--orange);"></span>
+          <span style="font-size: 13px; font-weight: 500;">BetterDocs</span>
+          <span class="mono" style="margin-left: auto; font-size: 10px; color: var(--muted);">43</span>
+        </a>
+        <a href="site.html" class="row gap-2" style="padding: 6px 8px; border-radius: 10px; color: var(--ink-2);">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--orange);"></span>
+          <span style="font-size: 13px; font-weight: 500;">Essential Addons</span>
+          <span class="mono" style="margin-left: auto; font-size: 10px; color: var(--muted);">42</span>
+        </a>
+        <a href="settings.html" class="row gap-2" style="padding: 6px 8px; border-radius: 10px; color: var(--muted);">
+          <svg class="nav-icon i-sm i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          <span style="font-size: 13px;">Add site</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="user-card">
+      <div class="user-avatar">W</div>
+      <div class="col" style="gap: 0;">
+        <div class="user-name">WPDeveloper</div>
+        <div class="user-email">support@wpdev.com</div>
+      </div>
+      <button class="icon-btn" title="Sign out" style="margin-left: auto; width: 28px; height: 28px;">
+        <svg class="i i-sm" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l-5-5 5-5M21 12H5"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="title">
+        <div class="eyebrow">Thursday, Apr 23</div>
+        <h1>Overview</h1>
+        <p>2 sites monitored · <span style="color: var(--bad); font-weight: 600;">49 critical issues</span> across all sites</p>
+      </div>
+      <button class="btn btn-sm"><svg class="i" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z"/></svg>Send to Slack</button>
+      <button class="btn btn-sm"><svg class="i" viewBox="0 0 24 24"><path d="M3 3v18h18"/><polyline points="7,14 12,9 16,13 21,8"/></svg>Weekly trend</button>
+      <button class="btn btn-sm"><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>Email report</button>
+      <button class="btn btn-primary btn-sm"><svg class="i" viewBox="0 0 24 24"><path d="M21 11.5V8a2 2 0 0 0-2-2h-5l-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h7"/><path d="M17 15l3 3 5-5" transform="translate(-5,-2)"/></svg>Scan all</button>
+    </header>
+
+    <!-- Bento -->
+    <section class="bento">
+
+      <!-- Big ink hero tile -->
+      <div class="hero-glance">
+        <div class="n-big">49</div>
+        <div>
+          <div class="eyebrow" style="color: var(--lime);">Critical issues</div>
+          <h2>You've got work to do this week.</h2>
+          <p>Most fixes take under an hour. We've prioritised by impact — biggest LCP & A11y wins sit at the top of each site's report.</p>
+          <div class="footer">
+            <span class="pill pill-lime">🚀 WP Rocket tuned</span>
+            <span class="pill" style="background: rgba(255,255,255,0.08); color: var(--surface); border-color: rgba(255,255,255,0.15);">AI · Claude Sonnet</span>
+            <span class="pill" style="background: rgba(255,255,255,0.08); color: var(--surface); border-color: rgba(255,255,255,0.15);">Next scan 23h</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Weekly trend sparkline ink -->
+      <div class="card card-lime span-3">
+        <div class="eyebrow" style="color: #364503;">Avg Perf (7d)</div>
+        <div class="row between mt-2" style="align-items: flex-end;">
+          <div class="num" style="font-size: 72px; line-height: 0.9;">42</div>
+          <span class="pill" style="background: var(--lime-ink); color: var(--lime); border-color: var(--lime-ink);">▲ +6</span>
+        </div>
+        <svg class="spark mt-4" style="height:70px" data-spark="28,30,38,30,38,42,43" data-color="#1F2605"></svg>
+      </div>
+
+      <div class="card span-3">
+        <div class="eyebrow">Scans last 7d</div>
+        <div class="row between mt-2" style="align-items: flex-end;">
+          <div class="num" style="font-size: 72px; line-height: 0.9;">17</div>
+          <span class="pill pill-good">▲ +4</span>
+        </div>
+        <svg class="bars mt-4" style="height:70px" data-bars='[{"label":"M","value":1,"color":"#0E0D10"},{"label":"T","value":2,"color":"#0E0D10"},{"label":"W","value":3,"color":"#0E0D10"},{"label":"T","value":3,"color":"#0E0D10"},{"label":"F","value":2,"color":"#0E0D10"},{"label":"S","value":3,"color":"#D6FF3C"},{"label":"S","value":3,"color":"#D6FF3C"}]' data-max="5"></svg>
+      </div>
+
+      <!-- Site: BetterDocs -->
+      <div class="card span-6">
+        <div class="site-card">
+          <div class="site-head">
+            <div class="site-logo bd">BD</div>
+            <div class="site-meta grow">
+              <h3>BetterDocs</h3>
+              <a href="https://betterdocs.co" target="_blank">betterdocs.co</a>
+            </div>
+            <span class="pill pill-bad">🔴 28 critical</span>
+            <a class="btn btn-sm" href="site.html">View report →</a>
+          </div>
+
+          <div class="row gap-2">
+            <span class="pill pill-ink">📱 Mobile</span>
+            <span class="pill">14-day trend · 14 scans</span>
+            <span class="muted" style="font-size:11px; margin-left:auto;">Last scan 7h ago</span>
+          </div>
+
+          <div class="score-row">
+            <div class="score-cell bad"><div class="n">43</div><div class="l">Perf</div></div>
+            <div class="score-cell warn"><div class="n">84</div><div class="l">A11y</div></div>
+            <div class="score-cell good"><div class="n">100</div><div class="l">BP</div></div>
+            <div class="score-cell good"><div class="n">92</div><div class="l">SEO</div></div>
+          </div>
+
+          <div class="cwv-row">
+            <div class="cwv-cell bad"><div class="lbl">LCP</div><div class="v">17.3 s</div></div>
+            <div class="cwv-cell bad"><div class="lbl">FCP</div><div class="v">15.0 s</div></div>
+            <div class="cwv-cell warn"><div class="lbl">TBT</div><div class="v">450 ms</div></div>
+            <div class="cwv-cell good"><div class="lbl">CLS</div><div class="v">0.043</div></div>
+          </div>
+
+          <svg class="spark" style="height:60px" data-spark="30,38,38,42,28,38,57,30,42,42,60,38,43,42" data-color="#FF5C35"></svg>
+          <div class="foot">
+            <span class="muted" style="font-size:12px;">No change since last scan</span>
+            <span class="pill">Apr 16 → Apr 23</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Site: Essential Addons -->
+      <div class="card span-6">
+        <div class="site-card">
+          <div class="site-head">
+            <div class="site-logo ea">EA</div>
+            <div class="site-meta grow">
+              <h3>Essential Addons</h3>
+              <a href="https://essential-addons.com" target="_blank">essential-addons.com</a>
+            </div>
+            <span class="pill pill-bad">🔴 21 critical</span>
+            <a class="btn btn-sm" href="site.html">View report →</a>
+          </div>
+
+          <div class="row gap-2">
+            <span class="pill pill-ink">📱 Mobile</span>
+            <span class="pill">14-day trend · 2 scans</span>
+            <span class="muted" style="font-size:11px; margin-left:auto;">Last scan 7h ago</span>
+          </div>
+
+          <div class="score-row">
+            <div class="score-cell bad"><div class="n">42</div><div class="l">Perf</div></div>
+            <div class="score-cell good"><div class="n">92</div><div class="l">A11y</div></div>
+            <div class="score-cell good"><div class="n">100</div><div class="l">BP</div></div>
+            <div class="score-cell good"><div class="n">100</div><div class="l">SEO</div></div>
+          </div>
+
+          <div class="cwv-row">
+            <div class="cwv-cell bad"><div class="lbl">LCP</div><div class="v">22.8 s</div></div>
+            <div class="cwv-cell bad"><div class="lbl">FCP</div><div class="v">8.9 s</div></div>
+            <div class="cwv-cell warn"><div class="lbl">TBT</div><div class="v">540 ms</div></div>
+            <div class="cwv-cell good"><div class="lbl">CLS</div><div class="v">0.001</div></div>
+          </div>
+
+          <svg class="spark" style="height:60px" data-spark="35,42" data-color="#FF5C35"></svg>
+          <div class="foot">
+            <span class="muted" style="font-size:12px;">No change since last scan</span>
+            <span class="pill">Apr 22 → Apr 23</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent activity -->
+      <div class="card span-12" style="padding: 24px 28px;">
+        <div class="row between mb-4">
+          <div class="row gap-3" style="align-items: baseline;">
+            <h2 class="h3">Recent activity</h2>
+            <span class="muted" style="font-size:12px;">Live feed · auto-refresh</span>
+          </div>
+          <div class="tabs">
+            <a class="active">All</a>
+            <a>Scans</a>
+            <a>Notifications</a>
+            <a>AI calls</a>
+          </div>
+        </div>
+
+        <div class="day-label">Today</div>
+        <div class="activity-row">
+          <span class="when">05:10 AM</span>
+          <div class="site"><span class="site-logo bd" style="width:24px;height:24px;border-radius:8px;font-size:11px;">BD</span>BetterDocs · desktop</div>
+          <span class="lcp">LCP 1.5s</span>
+          <div class="scores"><span class="s s-warn">58</span><span class="s s-warn">84</span><span class="s s-good">100</span><span class="s s-good">92</span></div>
+        </div>
+        <div class="activity-row">
+          <span class="when">05:10 AM</span>
+          <div class="site"><span class="site-logo bd" style="width:24px;height:24px;border-radius:8px;font-size:11px;">BD</span>BetterDocs · mobile</div>
+          <span class="lcp">LCP 17.3s</span>
+          <div class="scores"><span class="s s-bad">43</span><span class="s s-warn">84</span><span class="s s-good">100</span><span class="s s-good">92</span></div>
+        </div>
+        <div class="activity-row">
+          <span class="when">05:09 AM</span>
+          <div class="site"><span class="site-logo ea" style="width:24px;height:24px;border-radius:8px;font-size:11px;">EA</span>Essential Addons · mobile</div>
+          <span class="lcp">LCP 22.8s</span>
+          <div class="scores"><span class="s s-bad">42</span><span class="s s-good">92</span><span class="s s-good">100</span><span class="s s-good">100</span></div>
+        </div>
+        <div class="activity-row">
+          <span class="when">05:09 AM</span>
+          <div class="site"><span class="site-logo ea" style="width:24px;height:24px;border-radius:8px;font-size:11px;">EA</span>Essential Addons · desktop</div>
+          <span class="lcp">LCP 2.5s</span>
+          <div class="scores"><span class="s s-warn">68</span><span class="s s-warn">87</span><span class="s s-good">100</span><span class="s s-good">100</span></div>
+        </div>
+
+        <div class="day-label">Yesterday</div>
+        <div class="activity-row">
+          <span class="when">05:11 AM</span>
+          <div class="site"><span class="site-logo bd" style="width:24px;height:24px;border-radius:8px;font-size:11px;">BD</span>BetterDocs · mobile</div>
+          <span class="lcp">LCP 7.5s</span>
+          <div class="scores"><span class="s s-bad">28</span><span class="s s-warn">84</span><span class="s s-good">100</span><span class="s s-good">92</span></div>
+        </div>
+        <div class="activity-row">
+          <span class="when">05:11 AM</span>
+          <div class="site"><span class="site-logo bd" style="width:24px;height:24px;border-radius:8px;font-size:11px;">BD</span>BetterDocs · desktop</div>
+          <span class="lcp">LCP 1.5s</span>
+          <div class="scores"><span class="s s-warn">57</span><span class="s s-warn">84</span><span class="s s-good">100</span><span class="s s-good">92</span></div>
+        </div>
+        <div class="activity-row">
+          <span class="when">05:10 AM</span>
+          <div class="site"><span class="site-logo ea" style="width:24px;height:24px;border-radius:8px;font-size:11px;">EA</span>Essential Addons · desktop</div>
+          <span class="lcp">LCP 2.4s</span>
+          <div class="scores"><span class="s s-warn">59</span><span class="s s-warn">87</span><span class="s s-good">100</span><span class="s s-good">100</span></div>
+        </div>
+        <div class="activity-row">
+          <span class="when">05:10 AM</span>
+          <div class="site"><span class="site-logo ea" style="width:24px;height:24px;border-radius:8px;font-size:11px;">EA</span>Essential Addons · mobile</div>
+          <span class="lcp">LCP 23.6s</span>
+          <div class="scores"><span class="s s-bad">35</span><span class="s s-good">92</span><span class="s s-good">100</span><span class="s s-good">100</span></div>
+        </div>
+
+        <div class="day-label">Tue, Apr 21</div>
+        <div class="activity-row">
+          <span class="when">09:43 AM</span>
+          <div class="site"><span class="site-logo bd" style="width:24px;height:24px;border-radius:8px;font-size:11px;">BD</span>BetterDocs · mobile</div>
+          <span class="lcp">LCP 17.5s</span>
+          <div class="scores"><span class="s s-bad">38</span><span class="s s-warn">84</span><span class="s s-good">100</span><span class="s s-warn">85</span></div>
+        </div>
+        <div class="activity-row">
+          <span class="when">06:28 AM</span>
+          <div class="site"><span class="site-logo bd" style="width:24px;height:24px;border-radius:8px;font-size:11px;">BD</span>BetterDocs · desktop</div>
+          <span class="lcp">LCP 1.5s</span>
+          <div class="scores"><span class="s s-warn">60</span><span class="s s-warn">84</span><span class="s s-good">100</span><span class="s s-good">92</span></div>
+        </div>
+
+        <div class="row mt-4 between">
+          <span class="muted" style="font-size: 12px;">Showing 10 of 62 events</span>
+          <a href="logs.html" class="btn btn-sm">Open full log <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        </div>
+      </div>
+
+    </section>
+  </main>
+</div>
+<script src="assets/app.js"></script>
+</body>
+</html>

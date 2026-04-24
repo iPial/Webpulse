@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Pill from '@/components/ui/Pill';
 
 // AI Recommendations card — shows the full rich markdown analysis from the
 // last Analyze run PLUS a compact checkable fix-task list below it.
-// - site.ai_markdown holds the full per-issue detail (Impact / WP Rocket
-//   path / Action / Caveats) that the user wants back.
-// - site_fixes rows are used only for the check-off state tracker below.
 export default function AIRecommendations({
   siteId,
   isWPRocket = false,
@@ -100,39 +100,43 @@ export default function AIRecommendations({
   const fixed = fixes.filter((f) => f.status === 'fixed' && !f.needs_reverify);
 
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+    <Card variant="lime">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="w-6 h-6 rounded bg-purple-500/20 flex items-center justify-center">
-            <svg className="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+          <span
+            className="w-[28px] h-[28px] rounded-r-sm bg-ink text-lime grid place-items-center"
+            aria-hidden="true"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"
+              />
             </svg>
-          </div>
-          <h3 className="text-sm font-semibold text-white">AI Recommendations</h3>
+          </span>
+          <h3 className="font-semibold text-[15px] text-lime-ink">AI Recommendations</h3>
           {isWPRocket && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+            <span
+              className="text-[11px] font-semibold px-2 py-0.5 rounded-r-pill bg-ink text-lime border border-transparent"
+            >
               🚀 WP Rocket tuned
             </span>
           )}
           {generatedAt && (
-            <span className="text-[10px] text-gray-500" title={new Date(generatedAt).toLocaleString()}>
+            <span className="text-[11px]" style={{ color: '#364503' }} title={new Date(generatedAt).toLocaleString()}>
               Generated {formatAgo(generatedAt)}
             </span>
           )}
         </div>
 
-        <button
-          onClick={handleAnalyze}
-          disabled={analyzing}
-          className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
+        <Button variant="ink" onClick={handleAnalyze} disabled={analyzing}>
           {analyzing ? 'Analyzing…' : markdown ? 'Re-analyze' : 'Analyze'}
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400 mb-3">
+        <div className="rounded-r-sm bg-bad-bg border border-bad/30 p-3 text-[13px] text-bad mt-3">
           {error}
           <button onClick={() => setError('')} className="ml-2 underline hover:no-underline">
             Dismiss
@@ -141,62 +145,76 @@ export default function AIRecommendations({
       )}
 
       {analyzing && !markdown && (
-        <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
-          <div className="w-4 h-4 border-2 border-gray-600 border-t-purple-400 rounded-full animate-spin" />
+        <div className="flex items-center gap-2 text-[13px] mt-3" style={{ color: '#364503' }}>
+          <div className="w-4 h-4 border-2 border-lime-ink/30 border-t-lime-ink rounded-full animate-spin" />
           Analyzing scan results…
         </div>
       )}
 
-      {/* Rich markdown analysis */}
       {markdown ? (
-        <div className="text-sm text-gray-300 leading-relaxed">
+        <div className="text-[13px] text-lime-ink leading-relaxed mt-3">
           <MarkdownBlock text={markdown} />
         </div>
       ) : !analyzing ? (
-        <p className="text-sm text-gray-500">
-          Click <strong className="text-gray-300">Analyze</strong> to get {isWPRocket ? 'WP Rocket-specific' : 'AI-powered'} recommendations.
-          {!isWPRocket && ' Tag this site as WP Rocket in Settings for more precise fix instructions.'}
+        <p className="text-[13px] mt-3" style={{ color: '#364503' }}>
+          Click <strong className="font-semibold">Analyze</strong> to get{' '}
+          {isWPRocket ? 'WP Rocket-specific' : 'AI-powered'} recommendations.
+          {!isWPRocket &&
+            ' Tag this site as WP Rocket in Settings for more precise fix instructions.'}
         </p>
       ) : null}
 
-      {/* Fix tracker below the markdown */}
+      {/* Fix tracker */}
       {(fixes.length > 0 || loadingFixes) && (
-        <div className="mt-6 pt-5 border-t border-gray-800">
+        <div className="mt-6 pt-5 border-t border-lime-deep">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-              ✅ Fix Tasks
+            <h4 className="font-semibold text-[14px] text-lime-ink inline-flex items-center gap-2">
+              ✅ Fix tasks
             </h4>
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400">{pending.length} pending</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Pill variant="warn">{pending.length} pending</Pill>
               {needsReverify.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">
+                <span className="inline-flex items-center gap-[4px] text-[11px] font-semibold px-[10px] py-[3px] rounded-r-pill bg-orange/15 text-orange border border-orange/30">
                   {needsReverify.length} verify
                 </span>
               )}
-              <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">{fixed.length} fixed</span>
+              <Pill variant="good">{fixed.length} fixed</Pill>
             </div>
           </div>
 
           {loadingFixes ? (
-            <p className="text-xs text-gray-500">Loading fix tasks…</p>
+            <p className="text-[12px]" style={{ color: '#364503' }}>Loading fix tasks…</p>
           ) : (
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               {needsReverify.length > 0 && (
-                <FixSection title="Needs re-verify" color="orange" fixes={needsReverify} onSetStatus={setStatus} variant="verify" />
+                <FixSection
+                  title="Needs re-verify"
+                  tone="orange"
+                  fixes={needsReverify}
+                  onSetStatus={setStatus}
+                  variant="verify"
+                />
               )}
               {pending.length > 0 && (
-                <FixSection title="Pending" color="yellow" fixes={pending} onSetStatus={setStatus} />
+                <FixSection
+                  title="Pending"
+                  tone="pending"
+                  fixes={pending}
+                  onSetStatus={setStatus}
+                />
               )}
               {fixed.length > 0 && (
                 <div>
                   <button
+                    type="button"
                     onClick={() => setShowFixed(!showFixed)}
-                    className="text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-300 mb-2 inline-flex items-center gap-1"
+                    className="text-[11px] uppercase tracking-[0.08em] font-semibold hover:opacity-80 mb-2 inline-flex items-center gap-1"
+                    style={{ color: '#364503' }}
                   >
                     Fixed ({fixed.length}) {showFixed ? '▾' : '▸'}
                   </button>
                   {showFixed && (
-                    <div className="space-y-1.5">
+                    <div className="flex flex-col gap-2">
                       {fixed.map((f) => (
                         <FixRow key={f.id} fix={f} onSetStatus={setStatus} variant="fixed" />
                       ))}
@@ -206,21 +224,23 @@ export default function AIRecommendations({
               )}
             </div>
           )}
-          <p className="text-[10px] text-gray-600 mt-3">
+          <p className="text-[11px] mt-3" style={{ color: '#364503' }}>
             One row per numbered item above. Tick each off as you apply the fix.
           </p>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
-function FixSection({ title, color, fixes, onSetStatus, variant }) {
-  const colorClass = color === 'orange' ? 'text-orange-400' : 'text-gray-500';
+function FixSection({ title, tone, fixes, onSetStatus, variant }) {
+  const colorClass = tone === 'orange' ? 'text-orange' : 'text-lime-ink';
   return (
     <div>
-      <p className={`text-[10px] uppercase tracking-wider mb-1.5 ${colorClass}`}>{title}</p>
-      <div className="space-y-1.5">
+      <p className={`text-[11px] uppercase tracking-[0.1em] font-semibold mb-1.5 ${colorClass}`}>
+        {title}
+      </p>
+      <div className="flex flex-col gap-2">
         {fixes.map((f) => (
           <FixRow key={f.id} fix={f} onSetStatus={onSetStatus} variant={variant} />
         ))}
@@ -231,70 +251,76 @@ function FixSection({ title, color, fixes, onSetStatus, variant }) {
 
 function FixRow({ fix, onSetStatus, variant = 'pending' }) {
   const isFixed = fix.status === 'fixed';
-  const map = {
-    High: 'bg-red-500/10 text-red-400',
-    Medium: 'bg-yellow-500/10 text-yellow-400',
-    Low: 'bg-gray-700 text-gray-400',
+
+  const impactMap = {
+    High: 'bg-bad-bg text-bad',
+    Medium: 'bg-warn-bg text-warn',
+    Low: 'bg-paper-2 text-ink-2',
   };
-  const impactClass = map[fix.impact] || '';
+  const impactClass = impactMap[fix.impact] || '';
+
+  const rowBg =
+    variant === 'verify'
+      ? 'bg-orange/10 border-orange/30'
+      : variant === 'fixed'
+      ? 'bg-lime-deep/10 border-lime-deep/40'
+      : 'bg-surface/70 border-lime-deep/40';
 
   return (
-    <div
-      className={`rounded-lg border px-3 py-2 flex items-start gap-3 ${
-        variant === 'verify'
-          ? 'bg-orange-500/5 border-orange-500/20'
-          : variant === 'fixed'
-          ? 'bg-gray-800/40 border-gray-800'
-          : 'bg-gray-800/30 border-gray-700'
-      }`}
-    >
+    <div className={`rounded-r-sm border px-3 py-2.5 flex items-start gap-3 ${rowBg}`}>
       <button
+        type="button"
         onClick={() => onSetStatus(fix.id, isFixed ? 'pending' : 'fixed')}
         title={isFixed ? 'Mark as pending again' : 'Mark as fixed'}
-        className={`mt-0.5 w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
+        className={`mt-0.5 w-[18px] h-[18px] rounded-[4px] border-2 shrink-0 flex items-center justify-center transition-colors ${
           isFixed
-            ? 'bg-green-500 border-green-500 hover:bg-green-600'
-            : 'border-gray-600 hover:border-blue-500 bg-transparent'
+            ? 'bg-good border-good hover:brightness-110'
+            : 'border-muted hover:border-ink bg-transparent'
         }`}
       >
         {isFixed && (
-          <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+          <svg className="w-2.5 h-2.5 text-surface" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
           </svg>
         )}
       </button>
 
       <div className="flex-1 min-w-0">
-        <div className={`text-xs font-medium flex items-center gap-2 flex-wrap ${isFixed ? 'text-gray-400 line-through' : 'text-white'}`}>
+        <div
+          className={`text-[13px] font-medium flex items-center gap-2 flex-wrap ${
+            isFixed ? 'text-muted line-through' : 'text-ink'
+          }`}
+        >
           <span>{fix.title}</span>
           {fix.impact && !isFixed && (
-            <span className={`text-[9px] font-normal px-1.5 py-0.5 rounded ${impactClass}`}>
+            <span className={`text-[10px] font-normal px-1.5 py-0.5 rounded ${impactClass}`}>
               {fix.impact}
             </span>
           )}
           {fix.expected_gain && !isFixed && (
-            <span className="text-[9px] font-normal text-blue-400">{fix.expected_gain}</span>
+            <span className="text-[10px] font-normal text-cobalt">{fix.expected_gain}</span>
           )}
           {variant === 'verify' && (
-            <span className="text-[9px] font-normal px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300">
+            <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-orange/20 text-orange">
               reappeared
             </span>
           )}
         </div>
         {fix.rocket_path && !isFixed && (
-          <div className="text-[10px] text-blue-300 font-mono mt-0.5 truncate" title={fix.rocket_path}>
+          <div className="text-[11px] text-cobalt font-mono mt-0.5 truncate" title={fix.rocket_path}>
             {fix.rocket_path}
           </div>
         )}
         {isFixed && fix.fixed_at && (
-          <div className="text-[10px] text-gray-600 mt-0.5">fixed {formatAgo(fix.fixed_at)}</div>
+          <div className="text-[10px] text-muted mt-0.5">fixed {formatAgo(fix.fixed_at)}</div>
         )}
       </div>
 
       {variant === 'verify' && (
         <button
+          type="button"
           onClick={() => onSetStatus(fix.id, 'pending')}
-          className="text-[10px] px-2 py-1 rounded border border-orange-500/30 text-orange-300 hover:bg-orange-500/10 transition-colors shrink-0"
+          className="text-[10px] px-2 py-1 rounded-r-pill border border-orange/40 text-orange hover:bg-orange/10 transition-colors shrink-0"
         >
           Mark pending
         </button>
@@ -316,9 +342,7 @@ function formatAgo(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// Minimal markdown renderer — headings (#, ##, ###), bold (**…**),
-// inline code (`…`), unordered lists, paragraphs, horizontal rules, and
-// [text](url) links.
+// Minimal markdown renderer — same logic as before, redesigned colors
 function MarkdownBlock({ text }) {
   if (!text) return null;
   const lines = text.split('\n');
@@ -330,7 +354,7 @@ function MarkdownBlock({ text }) {
   function flushList() {
     if (listBuffer.length > 0) {
       nodes.push(
-        <ul key={`ul-${key++}`} className="list-disc list-outside pl-5 space-y-1 my-2">
+        <ul key={`ul-${key++}`} className="list-disc list-outside pl-5 space-y-1 my-2 text-lime-ink">
           {listBuffer.map((item, i) => (
             <li key={i}>{renderInline(item, `li-${key}-${i}`)}</li>
           ))}
@@ -344,7 +368,7 @@ function MarkdownBlock({ text }) {
     if (paraBuffer.length > 0) {
       const joined = paraBuffer.join(' ');
       nodes.push(
-        <p key={`p-${key++}`} className="my-2 text-gray-300">
+        <p key={`p-${key++}`} className="my-2 text-lime-ink">
           {renderInline(joined, `p-${key}`)}
         </p>
       );
@@ -367,10 +391,10 @@ function MarkdownBlock({ text }) {
       const level = h[1].length;
       const cls =
         level === 1
-          ? 'text-lg font-bold text-white mt-5 mb-2'
+          ? 'font-serif text-[22px] leading-tight text-ink mt-5 mb-2'
           : level === 2
-          ? 'text-base font-semibold text-white mt-4 mb-2'
-          : 'text-sm font-semibold text-purple-300 mt-4 mb-1.5';
+          ? 'font-semibold text-[16px] text-ink mt-4 mb-2'
+          : 'font-semibold text-[14px] text-ink mt-4 mb-1.5';
       const Tag = level === 1 ? 'h3' : level === 2 ? 'h4' : 'h5';
       nodes.push(
         <Tag key={`h-${key++}`} className={cls}>
@@ -390,7 +414,7 @@ function MarkdownBlock({ text }) {
     if (/^-{3,}$/.test(line)) {
       flushList();
       flushPara();
-      nodes.push(<hr key={`hr-${key++}`} className="my-4 border-gray-800" />);
+      nodes.push(<hr key={`hr-${key++}`} className="my-4 border-lime-deep" />);
       continue;
     }
 
@@ -410,7 +434,6 @@ function renderInline(text, keyBase) {
   let i = 0;
 
   while (i < text.length) {
-    // Markdown link [text](url)
     if (text[i] === '[') {
       const closeBracket = text.indexOf(']', i + 1);
       if (closeBracket !== -1 && text[closeBracket + 1] === '(') {
@@ -446,12 +469,12 @@ function renderInline(text, keyBase) {
 
   return tokens.map((tok, idx) => {
     const k = `${keyBase}-${idx}`;
-    if (tok.type === 'bold') return <strong key={k} className="text-white font-semibold">{tok.value}</strong>;
+    if (tok.type === 'bold') return <strong key={k} className="font-semibold text-ink">{tok.value}</strong>;
     if (tok.type === 'code') return (
-      <code key={k} className="px-1.5 py-0.5 rounded bg-gray-800 text-blue-300 text-xs font-mono">{tok.value}</code>
+      <code key={k} className="px-1.5 py-0.5 rounded bg-ink text-lime text-[11px] font-mono">{tok.value}</code>
     );
     if (tok.type === 'link') return (
-      <a key={k} href={tok.href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline underline-offset-2">{tok.value}</a>
+      <a key={k} href={tok.href} target="_blank" rel="noopener noreferrer" className="text-cobalt hover:underline underline-offset-2">{tok.value}</a>
     );
     return <span key={k}>{tok.value}</span>;
   });
