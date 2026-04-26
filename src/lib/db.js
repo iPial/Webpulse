@@ -288,6 +288,62 @@ export async function getLatestResults(cookieStore, teamId) {
   return Array.from(latest.values());
 }
 
+// Like getLatestResults, but also returns the *previous* scan for each
+// (site, strategy) pair, so callers can show deltas. Same query as
+// getLatestResults (limit(4) per site) — we were already fetching the
+// previous row and throwing it away during dedup.
+//
+// Returns: { latest: Row[], previousByKey: { '${siteId}-${strategy}': Row } }
+export async function getLatestAndPreviousResults(cookieStore, teamId) {
+  const supabase = createServerSupabase(cookieStore);
+
+  const { data: sites, error: sitesError } = await supabase
+    .from('sites')
+    .select('id')
+    .eq('team_id', teamId);
+  if (sitesError) throw sitesError;
+  if (!sites.length) return { latest: [], previousByKey: {} };
+
+  const siteIds = sites.map((s) => s.id);
+
+  const queries = siteIds.map((siteId) =>
+    supabase
+      .from('scan_results')
+      .select(`
+        *,
+        sites (id, name, url, team_id, tags, logo_url)
+      `)
+      .eq('site_id', siteId)
+      .order('scanned_at', { ascending: false })
+      .limit(4)
+  );
+
+  const responses = await Promise.all(queries);
+  const allRows = [];
+  for (const { data, error } of responses) {
+    if (error) throw error;
+    allRows.push(...data);
+  }
+
+  // Rows arrive newest-first per site. First seen (site, strategy) = latest;
+  // second = previous.
+  const latestByKey = new Map();
+  const previousByKey = {};
+  for (const row of allRows) {
+    const key = `${row.site_id}-${row.strategy}`;
+    if (!latestByKey.has(key)) {
+      latestByKey.set(key, row);
+    } else if (!previousByKey[key]) {
+      previousByKey[key] = row;
+    }
+  }
+
+  return {
+    latest: Array.from(latestByKey.values()),
+    previousByKey,
+  };
+}
+
 export async function getRecentActivity(cookieStore, teamId, { limit = 15 } = {}) {
   const supabase = createServerSupabase(cookieStore);
   const { data: sites } = await supabase.from('sites').select('id').eq('team_id', teamId);

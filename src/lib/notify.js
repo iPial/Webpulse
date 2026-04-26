@@ -114,13 +114,36 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
       if (!latest.has(key)) latest.set(key, row);
     }
 
+    // Fetch the previous scan for each (site, strategy) — i.e. the most
+    // recent row strictly older than this one. Fan out one query per pair
+    // in parallel; with N sites × 2 strategies that's 2N queries, which
+    // is well under Supabase's connection limit for a notify run.
+    const previousByKey = {};
+    await Promise.all(
+      Array.from(latest.values()).map(async (row) => {
+        const key = `${row.site_id}-${row.strategy}`;
+        const { data: prev } = await supabase
+          .from('scan_results')
+          .select('*')
+          .eq('site_id', row.site_id)
+          .eq('strategy', row.strategy)
+          .lt('scanned_at', row.scanned_at)
+          .order('scanned_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (prev) previousByKey[key] = prev;
+      })
+    );
+
     // Group by site
     const siteResults = new Map();
     for (const row of latest.values()) {
       if (!siteResults.has(row.site_id)) {
-        siteResults.set(row.site_id, { site: row.sites, results: {} });
+        siteResults.set(row.site_id, { site: row.sites, results: {}, previous: {} });
       }
       siteResults.get(row.site_id).results[row.strategy] = row;
+      const prev = previousByKey[`${row.site_id}-${row.strategy}`];
+      if (prev) siteResults.get(row.site_id).previous[row.strategy] = prev;
     }
 
     // Regressions vs previous monthly snapshot
@@ -218,8 +241,13 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
     if (shouldSendEmail) {
       try {
         const emailSites = [];
-        for (const [, { site, results: siteData }] of siteResults) {
-          emailSites.push({ site, mobile: siteData.mobile || null, desktop: siteData.desktop || null });
+        for (const [, { site, results: siteData, previous = {} }] of siteResults) {
+          emailSites.push({
+            site,
+            mobile: siteData.mobile || null,
+            desktop: siteData.desktop || null,
+            previous,
+          });
         }
 
         const recipientSet = new Set();

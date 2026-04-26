@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getUserTeams, getLatestResults, getTeamIntegrations } from '@/lib/db';
+import { getUserTeams, getLatestAndPreviousResults, getTeamIntegrations } from '@/lib/db';
 import { sendSlackMessage, buildDailySummary } from '@/lib/slack';
 import { runCompactAIForSites } from '@/lib/ai-batch';
 import { logEvent } from '@/lib/logs';
@@ -36,19 +36,21 @@ export async function POST(request) {
       );
     }
 
-    // Fetch latest results
-    const results = await getLatestResults(cookieStore, teamId);
-    if (results.length === 0) {
+    // Fetch latest + previous results (so the Slack message can show deltas)
+    const { latest, previousByKey } = await getLatestAndPreviousResults(cookieStore, teamId);
+    if (latest.length === 0) {
       return NextResponse.json({ error: 'No scan results to report' }, { status: 404 });
     }
 
     // Group by site — shape matches what runCompactAIForSites + buildDailySummary expect
     const siteResults = new Map();
-    for (const row of results) {
+    for (const row of latest) {
       if (!siteResults.has(row.site_id)) {
-        siteResults.set(row.site_id, { site: row.sites, results: {} });
+        siteResults.set(row.site_id, { site: row.sites, results: {}, previous: {} });
       }
       siteResults.get(row.site_id).results[row.strategy] = row;
+      const prev = previousByKey[`${row.site_id}-${row.strategy}`];
+      if (prev) siteResults.get(row.site_id).previous[row.strategy] = prev;
     }
 
     const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
