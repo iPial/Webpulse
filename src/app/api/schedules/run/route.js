@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabase } from '@/lib/supabase';
 import { enqueueBatchScans, enqueueNotify } from '@/lib/queue';
-import { runNotifyPipeline } from '@/lib/notify';
+import { runNotifyPipeline, runReportPipeline, isReportKind } from '@/lib/notify';
 import { logEvent } from '@/lib/logs';
 
 // POST /api/schedules/run
@@ -100,11 +100,55 @@ export async function POST(request) {
 }
 
 // Enqueue N scan workers + 1 delayed notify. Returns in < 2s.
+//
+// For schedules with a report `kind` ('weekly_trend_report' /
+// 'monthly_summary_report'), we skip the whole scan dispatch and run
+// the report pipeline inline — no scans, just aggregate + send. This
+// completes quickly so we can do it on the same request.
 async function dispatchSchedule(supabase, schedule, request) {
   const scheduleId = schedule.id;
   const teamId = schedule.team_id;
   const cfg = schedule.config || {};
 
+  // Report-only schedule path: assemble + send, no scanning.
+  if (isReportKind(cfg.kind)) {
+    await supabase
+      .from('integrations')
+      .update({
+        config: { ...cfg, status: 'running', runStartedAt: new Date().toISOString() },
+      })
+      .eq('id', scheduleId);
+
+    await logEvent({
+      teamId, type: 'schedule', level: 'info',
+      message: `Schedule #${scheduleId} dispatching — ${cfg.kind} (no scan)`,
+      metadata: { scheduleId, kind: cfg.kind, notifySlack: !!cfg.notifySlack, notifyEmail: !!cfg.notifyEmail },
+    });
+
+    try {
+      const result = await runReportPipeline(teamId, cfg.kind, {
+        notifySlack: cfg.notifySlack,
+        notifyEmail: cfg.notifyEmail,
+        scheduleId,
+      });
+      return {
+        scheduleId,
+        status: 'dispatched',
+        kind: cfg.kind,
+        notificationsSent: result.notificationsSent.length,
+      };
+    } catch (err) {
+      await failSchedule(supabase, schedule, `Report pipeline failed: ${err.message}`);
+      await logEvent({
+        teamId, type: 'schedule', level: 'error',
+        message: `Schedule #${scheduleId} (${cfg.kind}) report pipeline failed: ${err.message}`,
+        metadata: { scheduleId, kind: cfg.kind, error: err.message },
+      });
+      return { scheduleId, status: 'failed', kind: cfg.kind, error: err.message };
+    }
+  }
+
+  // Default scan-then-notify path.
   const { data: sites, error: sitesError } = await supabase
     .from('sites')
     .select('id, url, name, team_id, tags, logo_url')
@@ -319,7 +363,9 @@ function looksLikePreviewUrl(host) {
 }
 
 async function handleRecurrence(supabase, schedule) {
-  const { frequency, scheduledAt, notifySlack, notifyEmail, notifyAI, createdBy } = schedule.config;
+  const {
+    frequency, scheduledAt, notifySlack, notifyEmail, notifyAI, createdBy, kind,
+  } = schedule.config;
   if (!frequency || frequency === 'once') return;
 
   const current = new Date(scheduledAt);
@@ -337,16 +383,23 @@ async function handleRecurrence(supabase, schedule) {
     else if (frequency === 'monthly') next.setMonth(next.getMonth() + 1);
   }
 
+  const nextConfig = {
+    scheduledAt: next.toISOString(),
+    frequency,
+    notifySlack: !!notifySlack,
+    notifyEmail: !!notifyEmail,
+    notifyAI: !!notifyAI,
+    status: 'pending',
+    createdBy,
+  };
+  if (kind) nextConfig.kind = kind;
+
   const { data: newSchedule, error } = await supabase
     .from('integrations')
     .insert({
       team_id: schedule.team_id,
       type: 'schedule',
-      config: {
-        scheduledAt: next.toISOString(), frequency,
-        notifySlack: !!notifySlack, notifyEmail: !!notifyEmail, notifyAI: !!notifyAI,
-        status: 'pending', createdBy,
-      },
+      config: nextConfig,
       enabled: true,
     })
     .select()

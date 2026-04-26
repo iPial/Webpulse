@@ -14,12 +14,23 @@
 //   6. If scheduleId provided, mark the schedule 'completed'.
 
 import { createServiceSupabase } from './supabase';
-import { getTeamIntegrations } from './db';
+import { getTeamIntegrations, getTrendDataForTeam } from './db';
 import { detectRegression } from './pagespeed';
-import { sendSlackMessage, buildDailySummary, buildDailySummaryText } from './slack';
-import { sendReportEmail, buildReportHTML } from './email';
+import { sendSlackMessage, buildDailySummary, buildDailySummaryText, buildTrendReport } from './slack';
+import { sendReportEmail, buildReportHTML, buildTrendEmailHTML } from './email';
 import { runCompactAIForSites } from './ai-batch';
 import { logEvent } from './logs';
+
+// Report kinds the schedule runner can dispatch on. Anything not in this
+// list is treated as a regular scan schedule.
+export const REPORT_KINDS = {
+  weekly_trend_report: { windowDays: 7, label: 'Weekly trend report' },
+  monthly_summary_report: { windowDays: 30, label: 'Monthly summary report' },
+};
+
+export function isReportKind(kind) {
+  return kind && Object.prototype.hasOwnProperty.call(REPORT_KINDS, kind);
+}
 
 export async function runNotifyPipeline(teamSiteMap, options = {}) {
   const {
@@ -311,4 +322,194 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
   }
 
   return { notificationsSent };
+}
+
+// ============================================
+// Report-only pipeline (weekly/monthly trend reports — no scans)
+// ============================================
+//
+// Used by scheduled runs of kind 'weekly_trend_report' or
+// 'monthly_summary_report'. Pulls aggregate trend data, then sends to
+// Slack and/or email based on schedule flags. No scanning occurs.
+//
+// Inputs:
+//   teamId
+//   kind: 'weekly_trend_report' | 'monthly_summary_report'
+//   options: { notifySlack, notifyEmail, scheduleId }
+export async function runReportPipeline(teamId, kind, options = {}) {
+  const { notifySlack = true, notifyEmail = false, scheduleId } = options;
+
+  if (!isReportKind(kind)) {
+    throw new Error(`runReportPipeline: unknown kind "${kind}"`);
+  }
+  const { windowDays, label } = REPORT_KINDS[kind];
+
+  const supabase = createServiceSupabase();
+  const notificationsSent = [];
+
+  const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
+    ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
+    : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+
+  let trendBySiteId;
+  try {
+    trendBySiteId = await getTrendDataForTeam(teamId, { windowDays });
+  } catch (err) {
+    await logEvent({
+      teamId, type: 'notification', level: 'error',
+      message: `${label}: failed to fetch trend data — ${err.message}`,
+      metadata: { scheduleId, kind, error: err.message },
+    });
+    if (scheduleId) await markScheduleFailed(supabase, scheduleId, `Failed to fetch trend data: ${err.message}`);
+    return { notificationsSent };
+  }
+
+  if (!trendBySiteId || Object.keys(trendBySiteId).length === 0) {
+    await logEvent({
+      teamId, type: 'notification', level: 'warn',
+      message: `${label}: no sites or scan data in window — nothing to send`,
+      metadata: { scheduleId, kind, windowDays },
+    });
+    if (scheduleId) await markScheduleCompleted(supabase, scheduleId, { notificationsSent: 0 });
+    return { notificationsSent };
+  }
+
+  const integrations = await getTeamIntegrations(teamId);
+
+  const now = Date.now();
+  const periodEnd = new Date(now).toISOString();
+  const periodStart = new Date(now - windowDays * 86400000).toISOString();
+
+  // Slack
+  if (notifySlack) {
+    for (const integration of integrations) {
+      if (integration.type === 'slack' && integration.config?.webhookUrl) {
+        try {
+          const message = buildTrendReport(trendBySiteId, {
+            baseUrl: publicBaseUrl,
+            periodStart,
+            periodEnd,
+            windowDays,
+          });
+          await sendSlackMessage(integration.config.webhookUrl, message);
+          notificationsSent.push({ teamId, type: 'slack' });
+          await logEvent({
+            teamId, type: 'notification', level: 'info',
+            message: `${label} sent to Slack`,
+            metadata: { scheduleId, kind, windowDays, sites: Object.keys(trendBySiteId).length },
+          });
+        } catch (err) {
+          await logEvent({
+            teamId, type: 'notification', level: 'error',
+            message: `${label} Slack send failed: ${err.message}`,
+            metadata: { scheduleId, kind, error: err.message },
+          });
+        }
+      }
+    }
+  }
+
+  // Email
+  if (notifyEmail) {
+    try {
+      const recipientSet = new Set();
+      const emailIntegration = integrations.find((i) => i.type === 'email' && i.enabled);
+      if (emailIntegration?.config?.emails) {
+        emailIntegration.config.emails.split(',').map((e) => e.trim()).forEach((e) => recipientSet.add(e));
+      }
+      if (recipientSet.size === 0 && process.env.EMAIL_TO) {
+        process.env.EMAIL_TO.split(',').map((e) => e.trim()).forEach((e) => recipientSet.add(e));
+      }
+
+      const recipients = Array.from(recipientSet).filter(Boolean);
+      if (recipients.length > 0) {
+        const html = buildTrendEmailHTML(trendBySiteId, {
+          baseUrl: publicBaseUrl,
+          windowDays,
+          periodStart,
+          periodEnd,
+        });
+        const cadence = windowDays === 30 ? 'Monthly' : windowDays === 7 ? 'Weekly' : `${windowDays}-day`;
+        const dateLabel = new Date().toISOString().slice(0, 10);
+        await sendReportEmail({
+          to: recipients,
+          subject: `Webpulse ${cadence} Report — ${dateLabel}`,
+          html,
+        });
+        notificationsSent.push({ teamId, type: 'email' });
+        await logEvent({
+          teamId, type: 'notification', level: 'info',
+          message: `${label} emailed to ${recipients.length} recipient(s)`,
+          metadata: { scheduleId, kind, windowDays, recipients: recipients.length },
+        });
+      }
+    } catch (err) {
+      await logEvent({
+        teamId, type: 'notification', level: 'error',
+        message: `${label} email send failed: ${err.message}`,
+        metadata: { scheduleId, kind, error: err.message },
+      });
+    }
+  }
+
+  if (scheduleId) {
+    await markScheduleCompleted(supabase, scheduleId, { notificationsSent: notificationsSent.length });
+    await logEvent({
+      teamId, type: 'schedule', level: 'info',
+      message: `Schedule #${scheduleId} (${label}) completed`,
+      metadata: { scheduleId, kind, notificationsSent: notificationsSent.length },
+    });
+  }
+
+  return { notificationsSent };
+}
+
+async function markScheduleCompleted(supabase, scheduleId, extra = {}) {
+  try {
+    const { data: schedule } = await supabase
+      .from('integrations')
+      .select('config')
+      .eq('id', scheduleId)
+      .single();
+    if (schedule) {
+      await supabase
+        .from('integrations')
+        .update({
+          config: {
+            ...schedule.config,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            ...extra,
+          },
+        })
+        .eq('id', scheduleId);
+    }
+  } catch (err) {
+    console.error(`Failed to mark schedule ${scheduleId} completed:`, err.message);
+  }
+}
+
+async function markScheduleFailed(supabase, scheduleId, errorMsg) {
+  try {
+    const { data: schedule } = await supabase
+      .from('integrations')
+      .select('config')
+      .eq('id', scheduleId)
+      .single();
+    if (schedule) {
+      await supabase
+        .from('integrations')
+        .update({
+          config: {
+            ...schedule.config,
+            status: 'failed',
+            error: errorMsg,
+            failedAt: new Date().toISOString(),
+          },
+        })
+        .eq('id', scheduleId);
+    }
+  } catch (err) {
+    console.error(`Failed to mark schedule ${scheduleId} failed:`, err.message);
+  }
 }

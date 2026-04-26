@@ -62,6 +62,18 @@ export default function ScheduleManager({ teamId }) {
   const [notifySlack, setNotifySlack] = useState(false);
   const [notifyEmail, setNotifyEmail] = useState(false);
   const [notifyAI, setNotifyAI] = useState(false);
+  const [kind, setKind] = useState('scan');
+
+  const isReportKind = kind === 'weekly_trend_report' || kind === 'monthly_summary_report';
+
+  // When user picks a report kind, lock frequency to the matching cadence.
+  function handleKindChange(newKind) {
+    setKind(newKind);
+    if (newKind === 'weekly_trend_report') setFrequency('weekly');
+    else if (newKind === 'monthly_summary_report') setFrequency('monthly');
+    else setFrequency('once');
+    if (newKind !== 'scan') setNotifyAI(false); // reports don't run AI
+  }
 
   useEffect(() => {
     fetchSchedules();
@@ -100,6 +112,7 @@ export default function ScheduleManager({ teamId }) {
           notifySlack,
           notifyEmail,
           notifyAI,
+          kind,
         }),
       });
 
@@ -228,6 +241,7 @@ export default function ScheduleManager({ teamId }) {
     setNotifySlack(false);
     setNotifyEmail(false);
     setNotifyAI(false);
+    setKind('scan');
   }
 
   return (
@@ -235,14 +249,16 @@ export default function ScheduleManager({ teamId }) {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <div className="text-[11px] uppercase tracking-[0.14em] font-semibold text-lime">
-            Scheduled scans
+            Schedules
           </div>
           <h2 className="font-serif text-[28px] leading-tight text-surface mt-1">
-            Every site, on your clock.
+            Scans &amp; reports, on your clock.
           </h2>
           <p className="text-[13px] text-white/60 mt-1 max-w-[520px]">
-            QStash fires exact-minute triggers. A 60s dashboard fallback catches anything that slips.
-            Check the <a href="/logs" className="text-lime hover:underline">Logs page</a> for a live trace.
+            Run scans daily/weekly/monthly, or schedule recurring trend reports
+            to Slack and email. QStash fires exact-minute triggers; a 60s
+            dashboard fallback catches anything that slips. See{' '}
+            <a href="/logs" className="text-lime hover:underline">Logs</a> for a live trace.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -279,7 +295,29 @@ export default function ScheduleManager({ teamId }) {
           onSubmit={handleCreate}
           className="rounded-r-sm border border-white/10 bg-white/5 p-4 mb-4 flex flex-col gap-4"
         >
-          <Field label="Scan date & time" className="[&_label]:text-white/70">
+          <Field label="Schedule type" className="[&_label]:text-white/70">
+            <Select
+              value={kind}
+              onChange={(e) => handleKindChange(e.target.value)}
+              className="bg-white/5 text-surface border-white/10"
+            >
+              <option value="scan" className="text-ink">🔍 Scan + notify</option>
+              <option value="weekly_trend_report" className="text-ink">📈 Weekly trend report</option>
+              <option value="monthly_summary_report" className="text-ink">📊 Monthly summary report</option>
+            </Select>
+            <p className="text-[11px] text-white/50 mt-1">
+              {kind === 'scan'
+                ? 'Runs PSI on every site, then sends a scorecard with deltas.'
+                : kind === 'weekly_trend_report'
+                ? 'No scans. Aggregates the last 7 days vs the prior week.'
+                : 'No scans. Aggregates the last 30 days vs the prior 30.'}
+            </p>
+          </Field>
+
+          <Field
+            label={isReportKind ? 'First send · date & time' : 'Scan date & time'}
+            className="[&_label]:text-white/70"
+          >
             <Input
               type="datetime-local"
               value={scheduledAt}
@@ -310,7 +348,8 @@ export default function ScheduleManager({ teamId }) {
             <Select
               value={frequency}
               onChange={(e) => setFrequency(e.target.value)}
-              className="bg-white/5 text-surface border-white/10"
+              disabled={isReportKind}
+              className="bg-white/5 text-surface border-white/10 disabled:opacity-60"
             >
               {FREQUENCY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value} className="text-ink">
@@ -318,24 +357,19 @@ export default function ScheduleManager({ teamId }) {
                 </option>
               ))}
             </Select>
+            {isReportKind && (
+              <p className="text-[11px] text-white/50 mt-1">
+                Locked to {frequency} for this report type.
+              </p>
+            )}
           </Field>
 
           <div className="flex flex-wrap gap-5">
-            {[
-              { label: 'Slack', value: notifySlack, set: setNotifySlack },
-              { label: 'Email', value: notifyEmail, set: setNotifyEmail },
-              { label: '🤖 Include AI analysis', value: notifyAI, set: setNotifyAI },
-            ].map((o) => (
-              <label key={o.label} className="flex items-center gap-2 cursor-pointer text-surface text-[13px]">
-                <input
-                  type="checkbox"
-                  checked={o.value}
-                  onChange={(e) => o.set(e.target.checked)}
-                  className="w-4 h-4 rounded border-white/20 bg-white/5 text-lime focus:ring-lime"
-                />
-                <span>{o.label}</span>
-              </label>
-            ))}
+            <CheckboxOption label="Slack" value={notifySlack} onChange={setNotifySlack} />
+            <CheckboxOption label="Email" value={notifyEmail} onChange={setNotifyEmail} />
+            {!isReportKind && (
+              <CheckboxOption label="🤖 Include AI analysis" value={notifyAI} onChange={setNotifyAI} />
+            )}
           </div>
 
           <Button type="submit" variant="primary" disabled={creating} className="self-start">
@@ -369,11 +403,18 @@ export default function ScheduleManager({ teamId }) {
   );
 }
 
+const KIND_BADGE = {
+  weekly_trend_report: { emoji: '📈', label: 'Weekly trend' },
+  monthly_summary_report: { emoji: '📊', label: 'Monthly summary' },
+};
+
 function ScheduleRow({ schedule, onDelete, onRunNow, onReset, onToggleFlag }) {
   const config = schedule.config || {};
   const status = config.status || 'pending';
   const statusVariant = STATUS_VARIANT[status] || 'default';
   const statusLabel = STATUS_LABELS[status] || status.charAt(0).toUpperCase() + status.slice(1);
+  const kindBadge = config.kind ? KIND_BADGE[config.kind] : null;
+  const isReport = !!kindBadge;
   const isStuck =
     status === 'running' &&
     config.runStartedAt &&
@@ -385,6 +426,15 @@ function ScheduleRow({ schedule, onDelete, onRunNow, onReset, onToggleFlag }) {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[13px] font-semibold text-surface">{formatLocalTime(config.scheduledAt)}</span>
           <Pill variant={statusVariant}>{statusLabel}</Pill>
+          {kindBadge ? (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-r-pill bg-violet/20 text-violet border border-violet/30">
+              {kindBadge.emoji} {kindBadge.label}
+            </span>
+          ) : (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-r-pill bg-lime/15 text-lime border border-lime/30">
+              🔍 Scan
+            </span>
+          )}
           <span className="text-[11px] text-white/50 capitalize">{config.frequency || 'once'}</span>
         </div>
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
@@ -400,12 +450,14 @@ function ScheduleRow({ schedule, onDelete, onRunNow, onReset, onToggleFlag }) {
             on={!!config.notifyEmail}
             onClick={() => onToggleFlag?.(schedule.id, 'notifyEmail', !config.notifyEmail)}
           />
-          <FlagPill
-            label="AI"
-            emoji="🤖"
-            on={!!config.notifyAI}
-            onClick={() => onToggleFlag?.(schedule.id, 'notifyAI', !config.notifyAI)}
-          />
+          {!isReport && (
+            <FlagPill
+              label="AI"
+              emoji="🤖"
+              on={!!config.notifyAI}
+              onClick={() => onToggleFlag?.(schedule.id, 'notifyAI', !config.notifyAI)}
+            />
+          )}
         </div>
       </div>
 
@@ -448,6 +500,20 @@ function ScheduleRow({ schedule, onDelete, onRunNow, onReset, onToggleFlag }) {
         </button>
       </div>
     </div>
+  );
+}
+
+function CheckboxOption({ label, value, onChange }) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer text-surface text-[13px]">
+      <input
+        type="checkbox"
+        checked={value}
+        onChange={(e) => onChange(e.target.checked)}
+        className="w-4 h-4 rounded border-white/20 bg-white/5 text-lime focus:ring-lime"
+      />
+      <span>{label}</span>
+    </label>
   );
 }
 

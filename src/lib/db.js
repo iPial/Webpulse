@@ -679,22 +679,17 @@ export async function saveSiteAIAnalysis(siteId, markdown) {
   if (error) console.error('saveSiteAIAnalysis failed:', error.message);
 }
 
-// Returns per-site trend data for a 14-day window, split into this-week
-// (last 7 days) and last-week (7 days before that). Shape is ready for
-// buildTrendReport in slack.js.
-//
-// Output: { [siteId]: { site, thisWeek, lastWeek, bestDay, worstDay } }
-//   thisWeek/lastWeek: { scanCount, avgPerf, avgDesktopPerf, avgA11y, avgBP,
-//                        avgSEO, avgLcpMs, avgFcpMs, avgTbtMs, avgCls,
-//                        criticalCount }
-export async function getTrendData(cookieStore, teamId) {
-  const supabase = createServerSupabase(cookieStore);
-
+// Internal: compute trend data given a Supabase client and a window length
+// in days. Returns { [siteId]: { site, thisWindow, lastWindow, bestDay,
+// worstDay } } — same shape as before but the period names are generic.
+// (We keep `thisWeek`/`lastWeek` aliases for compatibility with callers
+// that already use those names.)
+async function _computeTrendData(supabase, teamId, windowDays = 7) {
   const now = Date.now();
-  const sevenDaysAgo = new Date(now - 7 * 86400000).toISOString();
-  const fourteenDaysAgo = new Date(now - 14 * 86400000).toISOString();
+  const windowMs = windowDays * 86400000;
+  const startThisIso = new Date(now - windowMs).toISOString();
+  const startPrevIso = new Date(now - windowMs * 2).toISOString();
 
-  // Get all enabled sites for the team
   const { data: sites } = await supabase
     .from('sites')
     .select('id, name, url, team_id, logo_url, tags')
@@ -703,12 +698,11 @@ export async function getTrendData(cookieStore, teamId) {
 
   const siteIds = sites.map((s) => s.id);
 
-  // Fetch all scan_results in the last 14 days for these sites
   const { data: rows } = await supabase
     .from('scan_results')
     .select('site_id, strategy, performance, accessibility, best_practices, seo, fcp, lcp, tbt, cls, audits, scanned_at')
     .in('site_id', siteIds)
-    .gte('scanned_at', fourteenDaysAgo);
+    .gte('scanned_at', startPrevIso);
   if (!rows) return {};
 
   function parseMs(displayValue) {
@@ -737,7 +731,6 @@ export async function getTrendData(cookieStore, teamId) {
       return vals.reduce((a, b) => a + b, 0) / vals.length;
     };
 
-    // Take the most recent mobile scan's critical count as this period's "critical count"
     const newestMobile = mobile.sort((a, b) => new Date(b.scanned_at) - new Date(a.scanned_at))[0];
     const criticalCount = newestMobile?.audits?.critical?.length || 0;
 
@@ -756,21 +749,19 @@ export async function getTrendData(cookieStore, teamId) {
     };
   }
 
-  // Group rows by site
   const bySite = new Map();
   for (const s of sites) bySite.set(s.id, { site: s, rows: [] });
   for (const r of rows) bySite.get(r.site_id)?.rows.push(r);
 
   const result = {};
   for (const [siteId, { site, rows: siteRows }] of bySite) {
-    const thisWeekRows = siteRows.filter((r) => r.scanned_at >= sevenDaysAgo);
-    const lastWeekRows = siteRows.filter((r) => r.scanned_at < sevenDaysAgo);
+    const thisRows = siteRows.filter((r) => r.scanned_at >= startThisIso);
+    const lastRows = siteRows.filter((r) => r.scanned_at < startThisIso);
 
-    // Best/worst day across all scans this week, by mobile performance
-    const mobileThisWeek = thisWeekRows.filter((r) => r.strategy === 'mobile');
+    const mobileThis = thisRows.filter((r) => r.strategy === 'mobile');
     let bestDay = null;
     let worstDay = null;
-    for (const r of mobileThisWeek) {
+    for (const r of mobileThis) {
       if (r.performance == null) continue;
       if (!bestDay || r.performance > bestDay.perf) {
         bestDay = { dateIso: r.scanned_at, strategy: 'mobile', perf: r.performance };
@@ -780,14 +771,33 @@ export async function getTrendData(cookieStore, teamId) {
       }
     }
 
+    const thisAgg = aggregate(thisRows);
+    const lastAgg = aggregate(lastRows);
+
     result[siteId] = {
       site,
-      thisWeek: aggregate(thisWeekRows),
-      lastWeek: aggregate(lastWeekRows),
+      thisWeek: thisAgg, // legacy alias used by buildTrendReport
+      lastWeek: lastAgg,
+      thisWindow: thisAgg,
+      lastWindow: lastAgg,
       bestDay,
       worstDay,
     };
   }
 
   return result;
+}
+
+// User-scoped trend data. Default window is 7 days (compatible with the
+// existing /api/export/trend-slack callers).
+export async function getTrendData(cookieStore, teamId, { windowDays = 7 } = {}) {
+  const supabase = createServerSupabase(cookieStore);
+  return _computeTrendData(supabase, teamId, windowDays);
+}
+
+// Service-role trend data, for scheduled report runs that don't have
+// a cookie store.
+export async function getTrendDataForTeam(teamId, { windowDays = 7 } = {}) {
+  const supabase = createServiceSupabase();
+  return _computeTrendData(supabase, teamId, windowDays);
 }

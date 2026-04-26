@@ -53,7 +53,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { teamId, scheduledAt, frequency, notifySlack, notifyEmail, notifyAI } = body;
+    const { teamId, scheduledAt, frequency, notifySlack, notifyEmail, notifyAI, kind } = body;
 
     if (!teamId) {
       return NextResponse.json({ error: 'teamId is required' }, { status: 400 });
@@ -61,6 +61,16 @@ export async function POST(request) {
 
     if (!scheduledAt) {
       return NextResponse.json({ error: 'scheduledAt is required' }, { status: 400 });
+    }
+
+    // Validate kind if present. Anything other than the report kinds is
+    // treated as a default scan schedule (kind not stored).
+    const validReportKinds = ['weekly_trend_report', 'monthly_summary_report'];
+    if (kind && kind !== 'scan' && !validReportKinds.includes(kind)) {
+      return NextResponse.json(
+        { error: `kind must be one of: scan, ${validReportKinds.join(', ')}` },
+        { status: 400 }
+      );
     }
 
     // Validate the date
@@ -78,6 +88,14 @@ export async function POST(request) {
       status: 'pending',
       createdBy: user.id,
     };
+
+    // Only persist kind if it's a report kind. Scan schedules don't store
+    // a kind so existing rows continue working unchanged.
+    if (validReportKinds.includes(kind)) {
+      config.kind = kind;
+      // Reports don't run AI (they aggregate existing scans)
+      config.notifyAI = false;
+    }
 
     const service = createServiceSupabase();
     const { data, error } = await service

@@ -382,22 +382,28 @@ export function buildRegressionAlert(siteName, regressions) {
 //       worstDay: { dateIso, strategy, perf, cause? },
 //     }
 //   }
-export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, periodEnd } = {}) {
+export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, periodEnd, windowDays = 7 } = {}) {
   const blocks = [];
   const siteIds = Object.keys(trendBySiteId);
   const sites = siteIds.map((id) => trendBySiteId[id]);
 
-  const startDate = periodStart ? new Date(periodStart) : new Date(Date.now() - 7 * 86400000);
+  const startDate = periodStart ? new Date(periodStart) : new Date(Date.now() - windowDays * 86400000);
   const endDate = periodEnd ? new Date(periodEnd) : new Date();
 
   const dateRange =
     `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}–` +
     `${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
-  // 1) Header
+  // 1) Header — title varies by window length so weekly/monthly read naturally
+  const headerTitle =
+    windowDays === 30
+      ? '📈 Webpulse Monthly Report — Last 30 days vs prior 30'
+      : windowDays === 7
+      ? '📈 Webpulse Weekly Report — Last 7 days vs prior week'
+      : `📈 Webpulse Trend Report — Last ${windowDays} days vs prior ${windowDays}`;
   blocks.push({
     type: 'header',
-    text: { type: 'plain_text', text: `📈 Webpulse Trend Report — Last 7 days vs prior week`, emoji: true },
+    text: { type: 'plain_text', text: headerTitle, emoji: true },
   });
 
   // 2) Summary

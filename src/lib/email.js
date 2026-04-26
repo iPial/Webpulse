@@ -330,3 +330,193 @@ export function buildReportHTML(sites, { baseUrl = '', aiSummariesBySiteId = nul
 function escapeHTML(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// ============================================
+// Trend Report HTML — used by scheduled weekly/monthly report runs
+// ============================================
+
+// trendBySiteId is the same shape produced by db.getTrendData /
+// getTrendDataForTeam: { [siteId]: { site, thisWindow, lastWindow,
+// bestDay, worstDay } }.
+//
+// windowDays: 7 → "Weekly", 30 → "Monthly", anything else → custom label.
+export function buildTrendEmailHTML(trendBySiteId, { baseUrl = '', windowDays = 7, periodStart, periodEnd } = {}) {
+  const sites = Object.values(trendBySiteId || {});
+  const now = Date.now();
+  const startDate = periodStart ? new Date(periodStart) : new Date(now - windowDays * 86400000);
+  const endDate = periodEnd ? new Date(periodEnd) : new Date(now);
+
+  const cadenceLabel =
+    windowDays === 30 ? 'Monthly Report'
+    : windowDays === 7 ? 'Weekly Report'
+    : `${windowDays}-Day Trend`;
+
+  const dateRange =
+    `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ` +
+    `${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+  const totalScans = sites.reduce((acc, s) => acc + (s.thisWindow?.scanCount || s.thisWeek?.scanCount || 0), 0);
+
+  const dashboardButton = baseUrl
+    ? `
+      <div style="margin: 16px 0 24px 0;">
+        <a href="${baseUrl}/history" style="display:inline-block; background-color:#3B82F6; color:white; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px;">Open History →</a>
+      </div>
+    `
+    : '';
+
+  const cards = sites.map((entry) => trendSiteCard(entry, baseUrl)).join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #0B1120; color: #E5E7EB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+      <div style="max-width: 720px; margin: 0 auto; padding: 32px 16px;">
+        <h1 style="color: #F9FAFB; font-size: 22px; margin: 0 0 6px 0;">📈 Webpulse ${cadenceLabel}</h1>
+        <p style="color: #9CA3AF; font-size: 14px; margin: 0;">
+          ${escapeHTML(dateRange)} &nbsp;·&nbsp; <strong style="color:#F3F4F6;">${sites.length}</strong> site${sites.length !== 1 ? 's' : ''}
+          ${totalScans > 0 ? `&nbsp;·&nbsp; <strong style="color:#F3F4F6;">${totalScans}</strong> scans` : ''}
+        </p>
+
+        ${dashboardButton}
+        ${cards}
+
+        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #374151; text-align:center;">
+          <p style="color: #6B7280; font-size: 12px; margin: 0 0 8px 0;">
+            Sent by Webpulse &middot; ${new Date().toISOString().slice(0, 10)}
+          </p>
+          ${baseUrl ? `<p style="margin:0;"><a href="${baseUrl}" style="color:#60A5FA; text-decoration:none;">Open Dashboard →</a></p>` : ''}
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+function trendSiteCard(entry, baseUrl) {
+  if (!entry?.site) return '';
+  const tw = entry.thisWindow || entry.thisWeek || {};
+  const lw = entry.lastWindow || entry.lastWeek || {};
+
+  const logoUrl = resolveLogoUrl(entry.site, 48);
+  const logoImg = logoUrl
+    ? `<img src="${logoUrl}" alt="" width="32" height="32" style="border-radius:8px; vertical-align:middle; margin-right:10px;" />`
+    : '';
+
+  return `
+    <div style="background-color: #111827; border: 1px solid #1F2937; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+      <div style="margin-bottom: 12px;">
+        ${logoImg}
+        <span style="color: #F9FAFB; font-size: 16px; font-weight: 600; vertical-align: middle;">${escapeHTML(entry.site.name)}</span>
+      </div>
+
+      <table style="width:100%; border-collapse:collapse; color:#E5E7EB; font-size: 13px; margin-bottom: 8px;">
+        <thead>
+          <tr style="color:#9CA3AF; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">
+            <th style="padding:6px 8px 6px 0; font-weight:600;">Metric</th>
+            <th style="padding:6px 8px; font-weight:600;">Last</th>
+            <th style="padding:6px 8px; font-weight:600;">Now</th>
+            <th style="padding:6px 8px; font-weight:600;">Δ</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${trendRow('Mobile Performance', lw.avgPerf, tw.avgPerf)}
+          ${trendRow('Desktop Performance', lw.avgDesktopPerf, tw.avgDesktopPerf)}
+          ${trendRow('Accessibility', lw.avgA11y, tw.avgA11y)}
+          ${trendRow('SEO', lw.avgSEO, tw.avgSEO)}
+          ${vitalRow('LCP', lw.avgLcpMs, tw.avgLcpMs, 'ms', true)}
+          ${vitalRow('TBT', lw.avgTbtMs, tw.avgTbtMs, 'ms', true)}
+          ${vitalRow('CLS', lw.avgCls, tw.avgCls, '', true, 3)}
+        </tbody>
+      </table>
+
+      ${
+        tw.criticalCount != null && lw.criticalCount != null
+          ? `<p style="color:#9CA3AF; font-size:12px; margin: 8px 0 0 0;">
+              <strong style="color:#F3F4F6;">Critical issues:</strong> ${lw.criticalCount} → <strong style="color:#F3F4F6;">${tw.criticalCount}</strong>
+              ${
+                tw.criticalCount > lw.criticalCount
+                  ? ` <span style="color:#EF4444;">(+${tw.criticalCount - lw.criticalCount} new)</span>`
+                  : tw.criticalCount < lw.criticalCount
+                  ? ` <span style="color:#10B981;">(${tw.criticalCount - lw.criticalCount} resolved)</span>`
+                  : ''
+              }
+            </p>`
+          : ''
+      }
+
+      ${
+        baseUrl
+          ? `<div style="margin-top: 12px;">
+              <a href="${baseUrl}/history?siteId=${entry.site.id}" style="color:#60A5FA; font-size:12px; text-decoration:none;">View history →</a>
+            </div>`
+          : ''
+      }
+    </div>
+  `;
+}
+
+function trendRow(label, lastVal, thisVal) {
+  if (lastVal == null && thisVal == null) return '';
+  const lw = lastVal != null ? Math.round(lastVal) : '—';
+  const tw = thisVal != null ? Math.round(thisVal) : '—';
+  const delta = lastVal != null && thisVal != null ? Math.round(thisVal) - Math.round(lastVal) : null;
+  const deltaCell =
+    delta === null
+      ? '—'
+      : delta === 0
+      ? '<span style="color:#6B7280;">—</span>'
+      : delta > 0
+      ? `<span style="color:#10B981; font-weight:600;">▲ +${delta}</span>`
+      : `<span style="color:#EF4444; font-weight:600;">▼ ${delta}</span>`;
+  return `
+    <tr>
+      <td style="padding:5px 8px 5px 0;">${escapeHTML(label)}</td>
+      <td style="padding:5px 8px; color:#9CA3AF;">${lw}</td>
+      <td style="padding:5px 8px; font-weight:600;">${tw}</td>
+      <td style="padding:5px 8px;">${deltaCell}</td>
+    </tr>
+  `;
+}
+
+function vitalRow(label, lastMs, thisMs, unit, lowerIsBetter = true, decimals = 2) {
+  if (lastMs == null && thisMs == null) return '';
+  const fmt = (v) => {
+    if (v == null) return '—';
+    if (unit === 'ms' && v >= 1000) return `${(v / 1000).toFixed(2)}s`;
+    if (unit === 'ms') return `${Math.round(v)}ms`;
+    return v.toFixed(decimals);
+  };
+  const lw = fmt(lastMs);
+  const tw = fmt(thisMs);
+  const deltaRaw = lastMs != null && thisMs != null ? thisMs - lastMs : null;
+  let deltaCell = '—';
+  if (deltaRaw !== null && deltaRaw !== 0) {
+    const isGood = lowerIsBetter ? deltaRaw < 0 : deltaRaw > 0;
+    const color = isGood ? '#10B981' : '#EF4444';
+    const arrow = isGood ? '▲' : '▼';
+    const magnitude = Math.abs(deltaRaw);
+    const magStr =
+      unit === 'ms' && magnitude >= 1000
+        ? `${(magnitude / 1000).toFixed(2)}s`
+        : unit === 'ms'
+        ? `${Math.round(magnitude)}ms`
+        : magnitude.toFixed(decimals);
+    deltaCell = `<span style="color:${color}; font-weight:600;">${arrow} ${magStr}</span>`;
+  } else if (deltaRaw === 0) {
+    deltaCell = '<span style="color:#6B7280;">—</span>';
+  }
+
+  return `
+    <tr>
+      <td style="padding:5px 8px 5px 0;">${escapeHTML(label)}</td>
+      <td style="padding:5px 8px; color:#9CA3AF;">${lw}</td>
+      <td style="padding:5px 8px; font-weight:600;">${tw}</td>
+      <td style="padding:5px 8px;">${deltaCell}</td>
+    </tr>
+  `;
+}
