@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import BrandMark from './BrandMark';
 
 /**
  * <PageShell> — redesigned sidebar + main layout for authenticated pages.
@@ -39,9 +40,7 @@ export default function PageShell({ children, className = '', publicView = false
       >
         <header className="flex items-center justify-between px-4 md:px-6 lg:px-[32px] py-3 border-b border-line bg-paper/60">
           <Link href="/" className="flex items-center gap-[10px]">
-            <span className="w-[32px] h-[32px] rounded-r-sm bg-ink text-lime grid place-items-center font-serif text-[18px] leading-none">
-              W
-            </span>
+            <BrandMark size={32} />
             <span className="font-semibold text-[15px] tracking-tight text-ink">
               Webpulse
             </span>
@@ -87,9 +86,7 @@ function Sidebar() {
     >
       {/* Brand */}
       <Link href="/" className="flex items-center gap-[10px] lg:px-[6px] lg:pb-2 shrink-0">
-        <span className="w-[32px] h-[32px] rounded-r-sm bg-ink text-lime grid place-items-center font-serif text-[18px] leading-none">
-          W
-        </span>
+        <BrandMark size={32} />
         <span className="hidden sm:inline font-semibold text-[15px] tracking-tight text-ink">
           Webpulse
         </span>

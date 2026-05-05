@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { createBrowserSupabase } from '@/lib/supabase';
 import Button from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Field';
+import BrandMark from '@/components/ui/BrandMark';
 
 export default function SignupPage() {
   return (
@@ -116,9 +117,7 @@ function SignupForm() {
       {/* LEFT — hero with checklist */}
       <aside className="hidden lg:flex flex-col justify-between p-[56px_64px]">
         <div className="flex items-center gap-[10px]">
-          <span className="w-[32px] h-[32px] rounded-r-sm bg-ink text-lime grid place-items-center font-serif text-[18px] leading-none">
-            W
-          </span>
+          <BrandMark size={32} />
           <span className="font-semibold text-[15px] tracking-tight text-ink">Webpulse</span>
           <span className="pulse-dot" />
         </div>
