@@ -2,8 +2,14 @@
 // Used by both the schedule runner and manual Send-to-Slack so Slack messages
 // and the dashboard checklist stay in sync.
 
-import { resolveAIConfig, callAIProvider, buildCompactPrompt, parseCompactResponse } from './ai';
-import { upsertSiteFixes } from './db';
+import {
+  resolveAIConfig,
+  callAIProvider,
+  buildCompactPrompt,
+  parseCompactResponse,
+  renderCompactAsMarkdown,
+} from './ai';
+import { upsertSiteFixes, saveSiteAIAnalysis } from './db';
 import { logEvent } from './logs';
 
 // siteResults: Map<siteId, { site, results: { mobile, desktop } }>
@@ -59,11 +65,24 @@ async function analyzeOneSite(teamId, provider, apiKey, siteId, site, mobile, pe
     }
 
     if (persist && parsed.topFixes?.length) {
-      try {
-        await upsertSiteFixes(siteId, parsed.topFixes);
-      } catch (err) {
-        console.error(`upsertSiteFixes failed for site ${siteId}:`, err.message);
-      }
+      // Render the same markdown the manual "Re-analyze" button produces
+      // so /site/[id]'s AI Recommendations card refreshes after every
+      // scheduled scan that runs AI — not just after manual clicks.
+      // Without this, sites.ai_markdown stayed stale forever and users
+      // saw last-week's analysis on this-week's report.
+      const isWPRocket = Array.isArray(site.tags) && site.tags.includes('wp-rocket');
+      const markdown = renderCompactAsMarkdown(parsed, { isWPRocket });
+
+      // Run upsertFixes + saveMarkdown in parallel — both are best-effort
+      // (a failure in either doesn't block the Slack/email send).
+      await Promise.all([
+        upsertSiteFixes(siteId, parsed.topFixes).catch((err) => {
+          console.error(`upsertSiteFixes failed for site ${siteId}:`, err.message);
+        }),
+        saveSiteAIAnalysis(siteId, markdown).catch((err) => {
+          console.error(`saveSiteAIAnalysis failed for site ${siteId}:`, err.message);
+        }),
+      ]);
     }
 
     await logEvent({
