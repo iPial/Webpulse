@@ -46,8 +46,11 @@ export default function Logo({ site, size = 'md', className = '' }) {
   const px = SIZE_PX[size] || SIZE_PX.md;
   const radius = SIZE_RADIUS[size] || SIZE_RADIUS.md;
   const font = SIZE_FONT[size] || SIZE_FONT.md;
-  // Scale the favicon request to match render size (retina-safe)
-  const src = resolveLogoUrl(site, Math.max(64, px * 2));
+  // Request the favicon at 4× CSS size so it stays sharp on retina/3x screens.
+  // Google's favicon service supports sizes up to 256; bumping to 4× covers
+  // even hi-DPI displays without obvious pixelation. (For custom logo_urls
+  // this size is ignored — the URL is returned verbatim.)
+  const src = resolveLogoUrl(site, Math.max(128, px * 4));
 
   const frame = `inline-flex items-center justify-center overflow-hidden bg-surface border border-line shadow-1 shrink-0 ${className}`;
   const style = { width: px, height: px, borderRadius: radius };
@@ -76,7 +79,10 @@ export default function Logo({ site, size = 'md', className = '' }) {
         width={px}
         height={px}
         onError={() => setErrored(true)}
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        // contain (not cover) — preserves the source's aspect ratio without
+        // cropping a custom logo_url that isn't square, and keeps native
+        // pixels mapped 1:1 instead of forced-stretching a small favicon.
+        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
       />
     </span>
   );

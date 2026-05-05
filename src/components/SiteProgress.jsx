@@ -74,13 +74,16 @@ export default function SiteProgress({ results }) {
         </table>
       </div>
 
-      {/* Trend chart */}
+      {/* Trend chart — capped at 1000px so the chart's aspect ratio stays
+          balanced (≈3.8:1 instead of 5+:1) on ultra-wide content areas. */}
       <div className="px-2 pb-2">
         <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-muted mb-3">
           Score history (mobile, last {Math.min(mobileResults.length, 30)} scans)
         </p>
         {reversed.length >= 2 ? (
-          <LineChart series={series} labels={labels} min={0} max={105} height={260} />
+          <div className="max-w-[1000px]">
+            <LineChart series={series} labels={labels} min={0} max={105} height={260} />
+          </div>
         ) : (
           <p className="text-[13px] text-muted py-8 text-center">
             Not enough data for a trend yet.

@@ -157,7 +157,7 @@ function SiteHeader({ site, publicView }) {
           </svg>
         </Link>
       )}
-      <Logo site={site} size="lg" />
+      <Logo site={site} size="xl" />
       <div className="min-w-0">
         <h1 className="font-serif text-[24px] md:text-[40px] leading-[1.05] tracking-tight text-ink truncate">
           {site.name}
