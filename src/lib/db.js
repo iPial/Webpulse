@@ -290,13 +290,17 @@ export async function getLatestResults(cookieStore, teamId) {
 
   const siteIds = sites.map((s) => s.id);
 
-  // Fetch latest 4 results per site in parallel (covers mobile + desktop even with partial failures)
+  // Fetch latest 4 results per site in parallel (covers mobile + desktop even
+  // with partial failures). The sites SELECT must include logo_url + tags so
+  // <Logo> picks up custom logos and SiteReportCard shows the WP Rocket badge
+  // — without these, the Overview dashboard silently falls back to Google
+  // favicons even when the user has set a high-quality logo_url.
   const queries = siteIds.map((siteId) =>
     supabase
       .from('scan_results')
       .select(`
         *,
-        sites (id, name, url, team_id)
+        sites (id, name, url, team_id, tags, logo_url, is_public)
       `)
       .eq('site_id', siteId)
       .order('scanned_at', { ascending: false })
