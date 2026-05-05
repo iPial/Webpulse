@@ -12,16 +12,18 @@ export default function AIRecommendations({
   isWPRocket = false,
   initialMarkdown = null,
   initialGeneratedAt = null,
+  readOnly = false, // public-view stakeholders: hide Re-analyze + fix tracker
 }) {
   const [markdown, setMarkdown] = useState(initialMarkdown);
   const [generatedAt, setGeneratedAt] = useState(initialGeneratedAt);
   const [fixes, setFixes] = useState([]);
-  const [loadingFixes, setLoadingFixes] = useState(true);
+  const [loadingFixes, setLoadingFixes] = useState(!readOnly);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
   const [showFixed, setShowFixed] = useState(false);
 
   const loadFixes = useCallback(async () => {
+    if (readOnly) return; // /api/fixes requires auth — would 401 in public view
     try {
       setLoadingFixes(true);
       const res = await fetch(`/api/fixes?siteId=${siteId}`);
@@ -31,13 +33,14 @@ export default function AIRecommendations({
     } finally {
       setLoadingFixes(false);
     }
-  }, [siteId]);
+  }, [siteId, readOnly]);
 
   useEffect(() => {
     loadFixes();
   }, [loadFixes]);
 
   useEffect(() => {
+    if (readOnly) return;
     function onUpdated(e) {
       if (!e.detail?.siteId || Number(e.detail.siteId) === Number(siteId)) {
         loadFixes();
@@ -45,7 +48,7 @@ export default function AIRecommendations({
     }
     window.addEventListener('webpulse:fixes-updated', onUpdated);
     return () => window.removeEventListener('webpulse:fixes-updated', onUpdated);
-  }, [siteId, loadFixes]);
+  }, [siteId, loadFixes, readOnly]);
 
   async function handleAnalyze() {
     setAnalyzing(true);
@@ -130,9 +133,11 @@ export default function AIRecommendations({
           )}
         </div>
 
-        <Button variant="ink" onClick={handleAnalyze} disabled={analyzing}>
-          {analyzing ? 'Analyzing…' : markdown ? 'Re-analyze' : 'Analyze'}
-        </Button>
+        {!readOnly && (
+          <Button variant="ink" onClick={handleAnalyze} disabled={analyzing}>
+            {analyzing ? 'Analyzing…' : markdown ? 'Re-analyze' : 'Analyze'}
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -155,17 +160,21 @@ export default function AIRecommendations({
         <div className="text-[13px] text-lime-ink leading-relaxed mt-3">
           <MarkdownBlock text={markdown} />
         </div>
-      ) : !analyzing ? (
+      ) : !analyzing && !readOnly ? (
         <p className="text-[13px] mt-3" style={{ color: '#364503' }}>
           Click <strong className="font-semibold">Analyze</strong> to get{' '}
           {isWPRocket ? 'WP Rocket-specific' : 'AI-powered'} recommendations.
           {!isWPRocket &&
             ' Tag this site as WP Rocket in Settings for more precise fix instructions.'}
         </p>
+      ) : !markdown && readOnly ? (
+        <p className="text-[13px] mt-3" style={{ color: '#364503' }}>
+          AI analysis hasn&apos;t been generated for this site yet.
+        </p>
       ) : null}
 
-      {/* Fix tracker */}
-      {(fixes.length > 0 || loadingFixes) && (
+      {/* Fix tracker — hidden in read-only public view (requires auth + interaction) */}
+      {!readOnly && (fixes.length > 0 || loadingFixes) && (
         <div className="mt-6 pt-5 border-t border-lime-deep">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h4 className="font-semibold text-[14px] text-lime-ink inline-flex items-center gap-2">

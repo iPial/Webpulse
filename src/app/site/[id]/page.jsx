@@ -1,6 +1,13 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { getSiteById, getSiteResults } from '@/lib/db';
+import {
+  getSiteById,
+  getSiteResults,
+  getPublicSiteById,
+  getPublicSiteResults,
+} from '@/lib/db';
+import { createServerSupabase } from '@/lib/supabase';
 import StrategyTabs from '@/components/StrategyTabs';
 import AIRecommendations from '@/components/AIRecommendations';
 import ScanHistoryTable from '@/components/ScanHistoryTable';
@@ -23,9 +30,40 @@ export default async function SiteDetailPage({ params }) {
   }
 
   const cookieStore = await cookies();
-  const site = await getSiteById(cookieStore, siteId);
 
+  // 1) Try authenticated path first. If the user is signed in AND has access
+  //    to this site (via RLS), render the full editor view.
+  const supabase = createServerSupabase(cookieStore);
+  const { data: { user } } = await supabase.auth.getUser();
+
+  let site = null;
+  let results = null;
+  let publicView = false;
+
+  if (user) {
+    site = await getSiteById(cookieStore, siteId);
+    if (site) {
+      results = await getSiteResults(cookieStore, siteId, { limit: 20 });
+    }
+  }
+
+  // 2) If no authed access, fall back to public path. The site is only
+  //    surfaced if its owner has flipped is_public=true.
   if (!site) {
+    site = await getPublicSiteById(siteId);
+    if (site) {
+      publicView = true;
+      results = await getPublicSiteResults(siteId, { limit: 20 });
+    }
+  }
+
+  // 3) Still nothing → either site doesn't exist, or it's private and the
+  //    visitor isn't signed in. Bounce to login (preserving the requested
+  //    URL) so a logged-out owner can come back to their own private report.
+  if (!site) {
+    if (!user) {
+      redirect(`/login?redirect=${encodeURIComponent(`/site/${siteId}`)}`);
+    }
     return (
       <PageShell>
         <ErrorState message="Site not found." />
@@ -33,14 +71,14 @@ export default async function SiteDetailPage({ params }) {
     );
   }
 
-  const results = await getSiteResults(cookieStore, siteId, { limit: 20 });
+  results = results || [];
   const mobile = results.find((r) => r.strategy === 'mobile') || null;
   const desktop = results.find((r) => r.strategy === 'desktop') || null;
 
   if (!mobile && !desktop) {
     return (
-      <PageShell>
-        <SiteHeader site={site} />
+      <PageShell publicView={publicView}>
+        <SiteHeader site={site} publicView={publicView} />
         <Card variant="hairline" className="text-center py-12 mt-6">
           <div className="mx-auto w-[56px] h-[56px] rounded-full bg-paper-2 grid place-items-center mb-3">
             <svg className="w-7 h-7 text-muted" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -48,9 +86,11 @@ export default async function SiteDetailPage({ params }) {
             </svg>
           </div>
           <p className="text-[14px] text-muted mb-1">No scan results yet for this site.</p>
-          <p className="text-[12px] text-muted">
-            Run a scan from Settings or wait for the next scheduled scan.
-          </p>
+          {!publicView && (
+            <p className="text-[12px] text-muted">
+              Run a scan from Settings or wait for the next scheduled scan.
+            </p>
+          )}
         </Card>
       </PageShell>
     );
@@ -61,8 +101,8 @@ export default async function SiteDetailPage({ params }) {
   const lastScanned = primaryResult.scanned_at;
 
   return (
-    <PageShell>
-      <SiteHeader site={site} />
+    <PageShell publicView={publicView}>
+      <SiteHeader site={site} publicView={publicView} />
 
       {/* Summary + actions */}
       <Card padding="sm" className="!p-[14px_18px] mt-4">
@@ -83,7 +123,7 @@ export default async function SiteDetailPage({ params }) {
               <span className="text-ink-2">{site.scan_frequency}</span>
             </div>
           </div>
-          <SiteDetailActions siteId={site.id} />
+          {!publicView && <SiteDetailActions siteId={site.id} />}
         </div>
       </Card>
 
@@ -95,6 +135,7 @@ export default async function SiteDetailPage({ params }) {
           isWPRocket={site.tags?.includes('wp-rocket')}
           initialMarkdown={site.ai_markdown || null}
           initialGeneratedAt={site.ai_generated_at || null}
+          readOnly={publicView}
         />
         <ScanHistoryTable results={results} />
       </div>
@@ -102,18 +143,20 @@ export default async function SiteDetailPage({ params }) {
   );
 }
 
-function SiteHeader({ site }) {
+function SiteHeader({ site, publicView }) {
   return (
     <div className="flex items-center gap-4">
-      <Link
-        href="/"
-        className="flex items-center justify-center w-[32px] h-[32px] rounded-r-sm bg-surface border border-line text-ink-2 hover:bg-paper-2 transition-colors shrink-0 shadow-1"
-        aria-label="Back to Overview"
-      >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-        </svg>
-      </Link>
+      {!publicView && (
+        <Link
+          href="/"
+          className="flex items-center justify-center w-[32px] h-[32px] rounded-r-sm bg-surface border border-line text-ink-2 hover:bg-paper-2 transition-colors shrink-0 shadow-1"
+          aria-label="Back to Overview"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
+        </Link>
+      )}
       <Logo site={site} size="lg" />
       <div className="min-w-0">
         <h1 className="font-serif text-[24px] md:text-[40px] leading-[1.05] tracking-tight text-ink truncate">

@@ -119,6 +119,39 @@ export async function getSiteById(cookieStore, siteId) {
   return data; // null if not found or RLS denies access
 }
 
+// Service-role lookup that ONLY returns a site when is_public=true.
+// Used by /site/[id] for unauthenticated requests so Slack/email
+// "View Full Report" links work for stakeholders without accounts.
+// Returns null if the site doesn't exist or is private.
+export async function getPublicSiteById(siteId) {
+  const supabase = createServiceSupabase();
+  const { data, error } = await supabase
+    .from('sites')
+    .select('*')
+    .eq('id', siteId)
+    .eq('is_public', true)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+// Companion to getPublicSiteById — fetches scan results for a public site.
+// Caller MUST have already verified the site is public (i.e. via
+// getPublicSiteById) before calling this; we don't double-check here.
+export async function getPublicSiteResults(siteId, { limit = 20 } = {}) {
+  const supabase = createServiceSupabase();
+  const { data, error } = await supabase
+    .from('scan_results')
+    .select('*')
+    .eq('site_id', siteId)
+    .order('scanned_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data;
+}
+
 export async function createSite(cookieStore, { teamId, name, url, scanFrequency, tags, logoUrl }) {
   const supabase = createServerSupabase(cookieStore);
   const { data, error } = await supabase
@@ -148,6 +181,7 @@ export async function updateSite(cookieStore, siteId, updates) {
   if (updates.scanFrequency !== undefined) allowed.scan_frequency = updates.scanFrequency;
   if (updates.tags !== undefined) allowed.tags = updates.tags;
   if (updates.logoUrl !== undefined) allowed.logo_url = updates.logoUrl || null;
+  if (updates.isPublic !== undefined) allowed.is_public = !!updates.isPublic;
 
   if (Object.keys(allowed).length === 0) throw new Error('No valid fields to update');
 

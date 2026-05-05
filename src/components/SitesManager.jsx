@@ -76,6 +76,32 @@ export default function SitesManager({ teamId, initialSites }) {
     }
   }
 
+  async function handleTogglePublic(site) {
+    const res = await fetch(`/api/sites/${site.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isPublic: !site.is_public }),
+    });
+    if (res.ok) {
+      const { site: updated } = await res.json();
+      setSites((prev) => prev.map((s) => (s.id === site.id ? updated : s)));
+    }
+  }
+
+  async function copyPublicLink(siteId) {
+    const url = `${window.location.origin}/site/${siteId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setScanMessages((prev) => ({
+        ...prev,
+        [siteId]: { type: 'success', text: 'Public link copied to clipboard' },
+      }));
+    } catch {
+      // Fallback: show the URL inline so the user can copy manually.
+      window.prompt('Copy this public link:', url);
+    }
+  }
+
   async function handleDelete(siteId) {
     if (!confirm('Delete this site and all its scan data?')) return;
     const res = await fetch(`/api/sites/${siteId}`, { method: 'DELETE' });
@@ -240,6 +266,30 @@ export default function SitesManager({ teamId, initialSites }) {
                           >
                             🚀 WP Rocket
                           </button>
+                          <button
+                            onClick={() => handleTogglePublic(site)}
+                            title={
+                              site.is_public
+                                ? 'Public — anyone with the report URL can view this site, no login required. Click to make private.'
+                                : 'Private — only team members can view. Click to allow public read-only access (Slack/email links work for stakeholders).'
+                            }
+                            className={`text-[10px] px-2 py-0.5 rounded-r-pill border transition-colors ${
+                              site.is_public
+                                ? 'bg-good-bg text-good border-good/30'
+                                : 'bg-paper-2 text-muted border-line hover:bg-paper'
+                            }`}
+                          >
+                            {site.is_public ? '🔗 Public' : '🔒 Private'}
+                          </button>
+                          {site.is_public && (
+                            <button
+                              onClick={() => copyPublicLink(site.id)}
+                              title="Copy public report URL"
+                              className="text-[10px] px-2 py-0.5 rounded-r-pill border bg-cobalt/10 text-cobalt border-cobalt/30 hover:bg-cobalt/15 inline-flex items-center gap-1"
+                            >
+                              📋 Copy link
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-3 text-right">

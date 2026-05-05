@@ -27,7 +27,38 @@ const NAV = [
   { href: '/settings', label: 'Settings', icon: GearIcon, match: (p) => p.startsWith('/settings') },
 ];
 
-export default function PageShell({ children, className = '' }) {
+export default function PageShell({ children, className = '', publicView = false }) {
+  // Public view (Slack/email link landing for unauthenticated visitors):
+  // hide the sidebar entirely and show a simple header with the brand mark
+  // and a Sign in link. Calling /api/me here would 401, so we don't.
+  if (publicView) {
+    return (
+      <div
+        className={`app-shell-bg min-h-screen ${className}`}
+        style={{ fontFamily: 'var(--font-inter), ui-sans-serif, system-ui, sans-serif' }}
+      >
+        <header className="flex items-center justify-between px-4 md:px-6 lg:px-[32px] py-3 border-b border-line bg-paper/60">
+          <Link href="/" className="flex items-center gap-[10px]">
+            <span className="w-[32px] h-[32px] rounded-r-sm bg-ink text-lime grid place-items-center font-serif text-[18px] leading-none">
+              W
+            </span>
+            <span className="font-semibold text-[15px] tracking-tight text-ink">
+              Webpulse
+            </span>
+            <span className="pulse-dot hidden sm:inline-block" />
+          </Link>
+          <Link
+            href="/login"
+            className="text-[12px] font-semibold text-ink-2 hover:text-ink underline-offset-2 hover:underline"
+          >
+            Sign in →
+          </Link>
+        </header>
+        <main className="p-4 md:p-6 lg:p-[32px] min-w-0 overflow-x-hidden">{children}</main>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`app-shell-bg min-h-screen lg:grid lg:grid-cols-[240px_1fr] ${className}`}

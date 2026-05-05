@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 // Routes that don't require authentication
-const publicRoutes = ['/login', '/signup', '/auth/callback'];
+// Routes that don't require authentication. /site/ is included so Slack/email
+// "View Full Report" links work for unauthenticated stakeholders when the
+// underlying site has is_public=true. The /site/[id] page itself checks
+// is_public and redirects to /login if the site is private.
+const publicRoutes = ['/login', '/signup', '/auth/callback', '/site/'];
 
 // Routes that use their own auth (cron secret, QStash signature)
 const serviceRoutes = [
