@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { getUserTeams, getLatestResults, getTeamIntegrations } from '@/lib/db';
 import { createServerSupabase } from '@/lib/supabase';
 import { sendReportEmail, buildReportHTML } from '@/lib/email';
+import { getPublicBaseUrl } from '@/lib/base-url';
 
 // POST /api/export/email
 // Body: { teamId?, to? }
@@ -80,9 +81,7 @@ export async function POST(request) {
     const sites = Array.from(siteMap.values());
 
     // Build and send email
-    const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
-      ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
-      : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+    const publicBaseUrl = getPublicBaseUrl();
 
     const html = buildReportHTML(sites, { baseUrl: publicBaseUrl });
     const date = new Date().toISOString().slice(0, 10);

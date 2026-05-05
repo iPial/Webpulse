@@ -4,6 +4,7 @@ import { getUserTeams, getLatestAndPreviousResults, getTeamIntegrations } from '
 import { sendSlackMessage, buildDailySummary } from '@/lib/slack';
 import { runCompactAIForSites } from '@/lib/ai-batch';
 import { logEvent } from '@/lib/logs';
+import { getPublicBaseUrl } from '@/lib/base-url';
 
 // POST /api/export/slack
 // Body: { teamId?, includeAI? (default true) }
@@ -53,9 +54,7 @@ export async function POST(request) {
       if (prev) siteResults.get(row.site_id).previous[row.strategy] = prev;
     }
 
-    const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
-      ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
-      : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+    const publicBaseUrl = getPublicBaseUrl();
 
     // Run AI in best-effort mode — never block the Slack send if it fails
     let aiSummariesBySiteId = null;

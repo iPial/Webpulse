@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { getUserTeams, getTeamIntegrations, getTrendData } from '@/lib/db';
 import { sendSlackMessage, buildTrendReport } from '@/lib/slack';
 import { logEvent } from '@/lib/logs';
+import { getPublicBaseUrl } from '@/lib/base-url';
 
 // POST /api/export/trend-slack
 // Body: { teamId? }
@@ -36,11 +37,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No trend data yet — scan at least a few days first.' }, { status: 404 });
     }
 
-    const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
-      ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
-      : (process.env.VERCEL_PROJECT_PRODUCTION_URL
-        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-        : '');
+    const publicBaseUrl = getPublicBaseUrl();
 
     const now = Date.now();
     const message = buildTrendReport(trendBySiteId, {

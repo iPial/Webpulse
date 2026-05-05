@@ -20,6 +20,7 @@ import { sendSlackMessage, buildDailySummary, buildDailySummaryText, buildTrendR
 import { sendReportEmail, buildReportHTML, buildTrendEmailHTML } from './email';
 import { runCompactAIForSites } from './ai-batch';
 import { logEvent } from './logs';
+import { getPublicBaseUrl } from './base-url';
 
 // Report kinds the schedule runner can dispatch on. Anything not in this
 // list is treated as a regular scan schedule.
@@ -246,9 +247,7 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
       },
     });
 
-    const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
-      ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
-      : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+    const publicBaseUrl = getPublicBaseUrl();
 
     // AI (optional)
     let aiSummariesBySiteId = null;
@@ -400,9 +399,7 @@ export async function runReportPipeline(teamId, kind, options = {}) {
   const supabase = createServiceSupabase();
   const notificationsSent = [];
 
-  const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
-    ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
-    : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+  const publicBaseUrl = getPublicBaseUrl();
 
   let trendBySiteId;
   try {
