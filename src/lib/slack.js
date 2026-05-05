@@ -126,9 +126,11 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
     summaryBlock.accessory = {
       type: 'button',
       text: { type: 'plain_text', text: 'Open Dashboard', emoji: true },
+      // No action_id: link-only buttons that don't need interactivity callbacks.
+      // Including action_id triggers Slack's "this app is not configured to
+      // handle interactive responses" warning on hover.
       url: baseUrl,
       style: 'primary',
-      action_id: 'open_dashboard',
     };
   }
   blocks.push(summaryBlock);
@@ -260,7 +262,6 @@ function pushSiteCard(blocks, site, mobile, desktop, previous, baseUrl) {
           type: 'button',
           text: { type: 'plain_text', text: 'View Full Report', emoji: true },
           url: `${baseUrl}/site/${site.id}`,
-          action_id: `view_${site.id}`,
         },
       ],
     });
@@ -419,9 +420,11 @@ export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, per
     summaryBlock.accessory = {
       type: 'button',
       text: { type: 'plain_text', text: 'Open Dashboard', emoji: true },
+      // No action_id: link-only buttons that don't need interactivity callbacks.
+      // Including action_id triggers Slack's "this app is not configured to
+      // handle interactive responses" warning on hover.
       url: baseUrl,
       style: 'primary',
-      action_id: 'open_dashboard',
     };
   }
   blocks.push(summaryBlock);
@@ -487,7 +490,6 @@ export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, per
             type: 'button',
             text: { type: 'plain_text', text: 'View History', emoji: true },
             url: `${baseUrl}/history?site=${entry.site.id}`,
-            action_id: `history_${entry.site.id}`,
           },
         ],
       });
