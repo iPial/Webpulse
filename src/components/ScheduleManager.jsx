@@ -50,6 +50,72 @@ function formatLocalTime(isoString) {
   }
 }
 
+const DAYS_OF_WEEK = [
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+];
+
+// Pad to 1..28 only — months without day 29/30/31 silently roll over to
+// the next month otherwise, which surprises users. 28 covers every month.
+const DAYS_OF_MONTH = Array.from({ length: 28 }, (_, i) => i + 1);
+
+// Compute the next occurrence of a weekly schedule (e.g. "every Tuesday at 14:00").
+// Always returns a Date strictly in the future so the schedule fires at
+// least once before recurrence.
+function computeNextWeekly(dayOfWeek, hh, mm) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(hh, mm, 0, 0);
+  const currentDay = next.getDay();
+  let daysToAdd = (dayOfWeek - currentDay + 7) % 7;
+  if (daysToAdd === 0 && next <= now) daysToAdd = 7;
+  next.setDate(next.getDate() + daysToAdd);
+  return next;
+}
+
+// Compute the next occurrence of a monthly schedule (e.g. "the 15th at 09:00").
+function computeNextMonthly(dayOfMonth, hh, mm) {
+  const now = new Date();
+  let next = new Date(now.getFullYear(), now.getMonth(), dayOfMonth, hh, mm, 0, 0);
+  if (next <= now) {
+    next = new Date(now.getFullYear(), now.getMonth() + 1, dayOfMonth, hh, mm, 0, 0);
+  }
+  return next;
+}
+
+// Compute the next occurrence of a daily schedule (e.g. "every day at 06:00").
+function computeNextDaily(hh, mm) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(hh, mm, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  return next;
+}
+
+// Parse "HH:MM" → [hours, minutes] integers.
+function parseTime(str) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(str || '');
+  if (!m) return [9, 0]; // sensible default
+  return [Math.max(0, Math.min(23, parseInt(m[1], 10))), Math.max(0, Math.min(59, parseInt(m[2], 10)))];
+}
+
+// 1 → "1st", 2 → "2nd", 3 → "3rd", 4 → "4th", … 21 → "21st", etc.
+function dayOrdinal(n) {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+
 export default function ScheduleManager({ teamId, sites = [] }) {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -57,7 +123,7 @@ export default function ScheduleManager({ teamId, sites = [] }) {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState(null);
 
-  const [scheduledAt, setScheduledAt] = useState(getDefaultDatetime);
+  const [scheduledAt, setScheduledAt] = useState(getDefaultDatetime); // used only for frequency=once
   const [frequency, setFrequency] = useState('once');
   const [notifySlack, setNotifySlack] = useState(false);
   const [notifyEmail, setNotifyEmail] = useState(false);
@@ -67,6 +133,38 @@ export default function ScheduleManager({ teamId, sites = [] }) {
   // to that single site only — useful for staggering 10+ sites across the
   // day so PSI rate-limits and notify dispatches don't pile up.
   const [siteId, setSiteId] = useState('');
+  // Recurrence-specific fields. scheduledAt above is the source of truth for
+  // 'once', these are for 'daily' / 'weekly' / 'monthly'. handleCreate picks
+  // which inputs to compose into the final ISO timestamp based on `frequency`.
+  const [dayOfWeek, setDayOfWeek] = useState(1); // Monday
+  const [dayOfMonth, setDayOfMonth] = useState(1); // 1st of each month
+  const [timeOfDay, setTimeOfDay] = useState('09:00'); // local-time HH:MM
+
+  // Site list — initialized from server prop, kept in sync with the
+  // sites-updated event so adding a site in SitesManager makes it appear
+  // in the picker without a page refresh.
+  const [sitesList, setSitesList] = useState(sites);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let cancelled = false;
+    async function refetch() {
+      try {
+        const res = await fetch(`/api/sites?teamId=${teamId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.sites)) setSitesList(data.sites);
+      } catch {
+        // best-effort; falls back to server-rendered sites prop
+      }
+    }
+    function handler() { refetch(); }
+    window.addEventListener('webpulse:sites-updated', handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('webpulse:sites-updated', handler);
+    };
+  }, [teamId]);
 
   const isReportKind = kind === 'weekly_trend_report' || kind === 'monthly_summary_report';
 
@@ -103,8 +201,26 @@ export default function ScheduleManager({ teamId, sites = [] }) {
     setError(null);
 
     try {
-      const localDate = new Date(scheduledAt);
-      const isoScheduledAt = localDate.toISOString();
+      // Compose the ISO timestamp from the appropriate inputs for this frequency.
+      // 'once' uses the full datetime-local; recurrences use timeOfDay + (day
+      // of week|month) so users can express "every Tuesday at 14:00" cleanly.
+      let computed;
+      if (frequency === 'once') {
+        computed = new Date(scheduledAt);
+      } else if (frequency === 'daily') {
+        const [hh, mm] = parseTime(timeOfDay);
+        computed = computeNextDaily(hh, mm);
+      } else if (frequency === 'weekly') {
+        const [hh, mm] = parseTime(timeOfDay);
+        computed = computeNextWeekly(Number(dayOfWeek), hh, mm);
+      } else if (frequency === 'monthly') {
+        const [hh, mm] = parseTime(timeOfDay);
+        computed = computeNextMonthly(Number(dayOfMonth), hh, mm);
+      } else {
+        computed = new Date(scheduledAt);
+      }
+      if (isNaN(computed.getTime())) throw new Error('Invalid schedule time');
+      const isoScheduledAt = computed.toISOString();
 
       const res = await fetch('/api/schedules', {
         method: 'POST',
@@ -249,6 +365,9 @@ export default function ScheduleManager({ teamId, sites = [] }) {
     setNotifyAI(false);
     setKind('scan');
     setSiteId('');
+    setDayOfWeek(1);
+    setDayOfMonth(1);
+    setTimeOfDay('09:00');
   }
 
   return (
@@ -329,7 +448,7 @@ export default function ScheduleManager({ teamId, sites = [] }) {
                 className="bg-white/5 text-surface border-white/10"
               >
                 <option value="" className="text-ink">All sites in team</option>
-                {sites.map((s) => (
+                {sitesList.map((s) => (
                   <option key={s.id} value={s.id} className="text-ink">
                     {s.name}
                   </option>
@@ -342,36 +461,6 @@ export default function ScheduleManager({ teamId, sites = [] }) {
               </p>
             </Field>
           )}
-
-          <Field
-            label={isReportKind ? 'First send · date & time' : 'Scan date & time'}
-            className="[&_label]:text-white/70"
-          >
-            <Input
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              required
-              className="bg-white/5 text-surface border-white/10 [color-scheme:dark]"
-            />
-            <div className="flex flex-wrap gap-2 mt-2">
-              {[
-                { label: 'In 1 min', mins: 1 },
-                { label: 'In 5 min', mins: 5 },
-                { label: 'In 30 min', mins: 30 },
-                { label: 'In 1 hour', mins: 60 },
-              ].map(({ label, mins }) => (
-                <button
-                  key={mins}
-                  type="button"
-                  onClick={() => setScheduledAt(addMinutes(mins))}
-                  className="px-2.5 py-1 rounded-r-pill bg-white/10 text-white/70 hover:bg-white/20 text-[11px] border border-white/10"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </Field>
 
           <Field label="Frequency" className="[&_label]:text-white/70">
             <Select
@@ -392,6 +481,118 @@ export default function ScheduleManager({ teamId, sites = [] }) {
               </p>
             )}
           </Field>
+
+          {/* Frequency-aware time inputs.
+                once    → full datetime (precise one-off)
+                daily   → time only ("every day at HH:MM")
+                weekly  → day-of-week + time
+                monthly → day-of-month (1–28) + time
+             For recurrences the date is auto-computed: the next matching
+             slot in the future. Times are interpreted in the user's local
+             timezone, then converted to UTC ISO on submit. */}
+          {frequency === 'once' && (
+            <Field label="Date & time" className="[&_label]:text-white/70">
+              <Input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                required
+                className="bg-white/5 text-surface border-white/10 [color-scheme:dark]"
+              />
+              <div className="flex flex-wrap gap-2 mt-2">
+                {[
+                  { label: 'In 1 min', mins: 1 },
+                  { label: 'In 5 min', mins: 5 },
+                  { label: 'In 30 min', mins: 30 },
+                  { label: 'In 1 hour', mins: 60 },
+                ].map(({ label, mins }) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => setScheduledAt(addMinutes(mins))}
+                    className="px-2.5 py-1 rounded-r-pill bg-white/10 text-white/70 hover:bg-white/20 text-[11px] border border-white/10"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          )}
+
+          {frequency === 'daily' && (
+            <Field label="Time of day (your local time)" className="[&_label]:text-white/70">
+              <Input
+                type="time"
+                value={timeOfDay}
+                onChange={(e) => setTimeOfDay(e.target.value)}
+                required
+                className="bg-white/5 text-surface border-white/10 [color-scheme:dark]"
+              />
+              <p className="text-[11px] text-white/50 mt-1">
+                Fires every day at {timeOfDay}. First run is the next occurrence.
+              </p>
+            </Field>
+          )}
+
+          {frequency === 'weekly' && (
+            <div className="grid sm:grid-cols-2 grid-cols-1 gap-3">
+              <Field label="Day of week" className="[&_label]:text-white/70">
+                <Select
+                  value={dayOfWeek}
+                  onChange={(e) => setDayOfWeek(Number(e.target.value))}
+                  className="bg-white/5 text-surface border-white/10"
+                >
+                  {DAYS_OF_WEEK.map((d) => (
+                    <option key={d.value} value={d.value} className="text-ink">
+                      {d.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Time of day (local)" className="[&_label]:text-white/70">
+                <Input
+                  type="time"
+                  value={timeOfDay}
+                  onChange={(e) => setTimeOfDay(e.target.value)}
+                  required
+                  className="bg-white/5 text-surface border-white/10 [color-scheme:dark]"
+                />
+              </Field>
+              <p className="sm:col-span-2 text-[11px] text-white/50 -mt-1">
+                Fires every {DAYS_OF_WEEK.find((d) => d.value === Number(dayOfWeek))?.label} at {timeOfDay}.
+              </p>
+            </div>
+          )}
+
+          {frequency === 'monthly' && (
+            <div className="grid sm:grid-cols-2 grid-cols-1 gap-3">
+              <Field label="Day of month" className="[&_label]:text-white/70">
+                <Select
+                  value={dayOfMonth}
+                  onChange={(e) => setDayOfMonth(Number(e.target.value))}
+                  className="bg-white/5 text-surface border-white/10"
+                >
+                  {DAYS_OF_MONTH.map((d) => (
+                    <option key={d} value={d} className="text-ink">
+                      {dayOrdinal(d)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Time of day (local)" className="[&_label]:text-white/70">
+                <Input
+                  type="time"
+                  value={timeOfDay}
+                  onChange={(e) => setTimeOfDay(e.target.value)}
+                  required
+                  className="bg-white/5 text-surface border-white/10 [color-scheme:dark]"
+                />
+              </Field>
+              <p className="sm:col-span-2 text-[11px] text-white/50 -mt-1">
+                Fires the {dayOrdinal(Number(dayOfMonth))} of every month at {timeOfDay}. (Capped at the 28th — months without that day are otherwise unpredictable.)
+              </p>
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-5">
             <CheckboxOption label="Slack" value={notifySlack} onChange={setNotifySlack} />
@@ -420,7 +621,7 @@ export default function ScheduleManager({ teamId, sites = [] }) {
             <ScheduleRow
               key={schedule.id}
               schedule={schedule}
-              sites={sites}
+              sites={sitesList}
               onDelete={handleDelete}
               onRunNow={handleRunNow}
               onReset={handleReset}

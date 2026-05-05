@@ -46,6 +46,14 @@ export default function SitesManager({ teamId, initialSites }) {
 
   function handleSiteAdded(site) {
     setSites((prev) => [...prev, site]);
+    notifySitesUpdated();
+  }
+
+  // Tell ScheduleManager (and any other listener) that the site list changed
+  // so it can refetch and show new sites in its picker without a full reload.
+  function notifySitesUpdated() {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('webpulse:sites-updated'));
   }
 
   async function handleToggle(siteId, enabled) {
@@ -108,6 +116,7 @@ export default function SitesManager({ teamId, initialSites }) {
     if (res.ok) {
       setSites((prev) => prev.filter((s) => s.id !== siteId));
       setScanMessages((prev) => { const next = { ...prev }; delete next[siteId]; return next; });
+      notifySitesUpdated();
     }
   }
 
