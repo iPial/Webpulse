@@ -48,11 +48,21 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
   const freshSinceIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
   for (const [teamId, siteIds] of Object.entries(teamSiteMap)) {
-    // Try fetching 3 times with 20s waits between — catches stragglers
-    // where one worker finishes right around when notify fires.
+    // Try fetching up to 5 times with 25s waits between — catches stragglers
+    // where one worker finishes right around when notify fires. We only
+    // proceed once EVERY site has at least one fresh row in DB; counting
+    // total rows is wrong because a fast site can finish both strategies
+    // (= 2 rows) before a slow site has even started, which would falsely
+    // satisfy `results.length >= siteIds.length` and drop the slow site
+    // silently from the report. Total max wait: 5 attempts × 25s = 125s,
+    // well within the notify function's 300s budget.
+    const MAX_ATTEMPTS = 5;
+    const RETRY_WAIT_MS = 25000;
     let results = null;
     let resultsError = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    let missingSiteIds = siteIds;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const r = await supabase
         .from('scan_results')
         .select('*, sites (id, name, url, team_id, tags, logo_url)')
@@ -64,17 +74,43 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
       resultsError = r.error;
 
       if (resultsError) break;
-      // Success path: we have at least 1 result per site expected
-      if (results && results.length >= siteIds.length) break;
-      // Otherwise wait and retry (except on last iteration)
-      if (attempt < 2) {
+
+      const seenSiteIds = new Set((results || []).map((row) => row.site_id));
+      missingSiteIds = siteIds.filter((id) => !seenSiteIds.has(id));
+
+      // Success: every requested site has produced at least one row.
+      if (missingSiteIds.length === 0) break;
+
+      // Otherwise log what's missing and retry (except on last iteration).
+      if (attempt < MAX_ATTEMPTS - 1) {
         await logEvent({
           teamId, type: 'notification', level: 'info',
-          message: `Notify: only ${results?.length || 0}/${siteIds.length * 2} results so far; waiting 20s for stragglers (attempt ${attempt + 1}/3)`,
-          metadata: { scheduleId, attempt: attempt + 1 },
+          message: `Notify: ${missingSiteIds.length}/${siteIds.length} site(s) still missing results — waiting ${RETRY_WAIT_MS / 1000}s (attempt ${attempt + 1}/${MAX_ATTEMPTS})`,
+          metadata: {
+            scheduleId,
+            attempt: attempt + 1,
+            missingSiteIds,
+            seenRows: results?.length || 0,
+          },
         });
-        await new Promise((r) => setTimeout(r, 20000));
+        await new Promise((r) => setTimeout(r, RETRY_WAIT_MS));
       }
+    }
+
+    // If any sites are STILL missing after all retries, log which ones
+    // explicitly so the report-without-X case is debuggable from /logs alone.
+    if (missingSiteIds.length > 0 && !resultsError) {
+      await logEvent({
+        teamId, type: 'notification', level: 'warn',
+        message: `Notify proceeding with ${siteIds.length - missingSiteIds.length}/${siteIds.length} site(s) — ${missingSiteIds.length} still missing after ${MAX_ATTEMPTS} attempts`,
+        metadata: {
+          scheduleId,
+          missingSiteIds,
+          seenRows: results?.length || 0,
+          totalWaitedMs: RETRY_WAIT_MS * (MAX_ATTEMPTS - 1),
+          hint: 'Slow sites whose PSI runs took >2.5min are dropped. Check /logs for "Lighthouse" or "PSI" errors on the missing site IDs.',
+        },
+      });
     }
 
     if (resultsError) {
