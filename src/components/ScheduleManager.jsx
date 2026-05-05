@@ -5,6 +5,12 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Pill from '@/components/ui/Pill';
 import { Input, Select, Field } from '@/components/ui/Field';
+import {
+  DAYS_OF_WEEK,
+  DAYS_OF_MONTH,
+  dayOrdinal,
+  computeScheduledAt,
+} from '@/lib/schedule-helpers';
 
 const FREQUENCY_OPTIONS = [
   { value: 'once', label: 'Once' },
@@ -50,71 +56,6 @@ function formatLocalTime(isoString) {
   }
 }
 
-const DAYS_OF_WEEK = [
-  { value: 0, label: 'Sunday' },
-  { value: 1, label: 'Monday' },
-  { value: 2, label: 'Tuesday' },
-  { value: 3, label: 'Wednesday' },
-  { value: 4, label: 'Thursday' },
-  { value: 5, label: 'Friday' },
-  { value: 6, label: 'Saturday' },
-];
-
-// Pad to 1..28 only — months without day 29/30/31 silently roll over to
-// the next month otherwise, which surprises users. 28 covers every month.
-const DAYS_OF_MONTH = Array.from({ length: 28 }, (_, i) => i + 1);
-
-// Compute the next occurrence of a weekly schedule (e.g. "every Tuesday at 14:00").
-// Always returns a Date strictly in the future so the schedule fires at
-// least once before recurrence.
-function computeNextWeekly(dayOfWeek, hh, mm) {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(hh, mm, 0, 0);
-  const currentDay = next.getDay();
-  let daysToAdd = (dayOfWeek - currentDay + 7) % 7;
-  if (daysToAdd === 0 && next <= now) daysToAdd = 7;
-  next.setDate(next.getDate() + daysToAdd);
-  return next;
-}
-
-// Compute the next occurrence of a monthly schedule (e.g. "the 15th at 09:00").
-function computeNextMonthly(dayOfMonth, hh, mm) {
-  const now = new Date();
-  let next = new Date(now.getFullYear(), now.getMonth(), dayOfMonth, hh, mm, 0, 0);
-  if (next <= now) {
-    next = new Date(now.getFullYear(), now.getMonth() + 1, dayOfMonth, hh, mm, 0, 0);
-  }
-  return next;
-}
-
-// Compute the next occurrence of a daily schedule (e.g. "every day at 06:00").
-function computeNextDaily(hh, mm) {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(hh, mm, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
-  return next;
-}
-
-// Parse "HH:MM" → [hours, minutes] integers.
-function parseTime(str) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(str || '');
-  if (!m) return [9, 0]; // sensible default
-  return [Math.max(0, Math.min(23, parseInt(m[1], 10))), Math.max(0, Math.min(59, parseInt(m[2], 10)))];
-}
-
-// 1 → "1st", 2 → "2nd", 3 → "3rd", 4 → "4th", … 21 → "21st", etc.
-function dayOrdinal(n) {
-  const v = n % 100;
-  if (v >= 11 && v <= 13) return `${n}th`;
-  switch (n % 10) {
-    case 1: return `${n}st`;
-    case 2: return `${n}nd`;
-    case 3: return `${n}rd`;
-    default: return `${n}th`;
-  }
-}
 
 export default function ScheduleManager({ teamId, sites = [] }) {
   const [schedules, setSchedules] = useState([]);
@@ -201,25 +142,14 @@ export default function ScheduleManager({ teamId, sites = [] }) {
     setError(null);
 
     try {
-      // Compose the ISO timestamp from the appropriate inputs for this frequency.
-      // 'once' uses the full datetime-local; recurrences use timeOfDay + (day
-      // of week|month) so users can express "every Tuesday at 14:00" cleanly.
-      let computed;
-      if (frequency === 'once') {
-        computed = new Date(scheduledAt);
-      } else if (frequency === 'daily') {
-        const [hh, mm] = parseTime(timeOfDay);
-        computed = computeNextDaily(hh, mm);
-      } else if (frequency === 'weekly') {
-        const [hh, mm] = parseTime(timeOfDay);
-        computed = computeNextWeekly(Number(dayOfWeek), hh, mm);
-      } else if (frequency === 'monthly') {
-        const [hh, mm] = parseTime(timeOfDay);
-        computed = computeNextMonthly(Number(dayOfMonth), hh, mm);
-      } else {
-        computed = new Date(scheduledAt);
-      }
-      if (isNaN(computed.getTime())) throw new Error('Invalid schedule time');
+      // Compose the ISO timestamp using the shared helper.
+      const computed = computeScheduledAt({
+        frequency,
+        oncePicker: scheduledAt,
+        dayOfWeek,
+        dayOfMonth,
+        timeOfDay,
+      });
       const isoScheduledAt = computed.toISOString();
 
       const res = await fetch('/api/schedules', {
