@@ -229,6 +229,23 @@ export async function runNotifyPipeline(teamSiteMap, options = {}) {
     const shouldSendEmail = scheduleNotifyEmail !== undefined ? scheduleNotifyEmail : false;
     const shouldRunAI = scheduleNotifyAI === true;
 
+    // Log effective flags up-front so it's obvious from /logs why AI did
+    // or didn't run, even if downstream stays silent (no integration, no
+    // sites, etc.). The single biggest cause of "AI didn't run" is
+    // notifyAI arriving as false/undefined here — this surfaces it.
+    await logEvent({
+      teamId, type: 'notification', level: 'info',
+      message: `Notify pipeline starting for ${siteResults.size} site(s) — slack=${shouldSendSlack} email=${shouldSendEmail} ai=${shouldRunAI}`,
+      metadata: {
+        scheduleId,
+        sites: siteResults.size,
+        notifySlack: shouldSendSlack,
+        notifyEmail: shouldSendEmail,
+        notifyAI: shouldRunAI,
+        receivedNotifyAIRaw: scheduleNotifyAI, // catches `undefined` vs `false` vs `true`
+      },
+    });
+
     const publicBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
       ? process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
       : (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');

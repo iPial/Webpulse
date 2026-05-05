@@ -23,6 +23,12 @@ export default function SiteForm({ teamId, onSiteAdded }) {
   const [dayOfWeek, setDayOfWeek] = useState(1); // Monday
   const [dayOfMonth, setDayOfMonth] = useState(1);
   const [timeOfDay, setTimeOfDay] = useState('09:00');
+  // Notification preferences for the auto-created schedule. Default to AI on
+  // (it's the most useful default — gives users actionable fix tasks with
+  // every scheduled scan), Slack/email off until they hook those up.
+  const [notifyAI, setNotifyAI] = useState(true);
+  const [notifySlack, setNotifySlack] = useState(false);
+  const [notifyEmail, setNotifyEmail] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -77,6 +83,9 @@ export default function SiteForm({ teamId, onSiteAdded }) {
             scheduledAt: scheduledAtIso,
             frequency,
             kind: 'scan',
+            notifyAI,
+            notifySlack,
+            notifyEmail,
           }),
         });
         if (!schedRes.ok) {
@@ -96,6 +105,9 @@ export default function SiteForm({ teamId, onSiteAdded }) {
       setDayOfWeek(1);
       setDayOfMonth(1);
       setTimeOfDay('09:00');
+      setNotifyAI(true);
+      setNotifySlack(false);
+      setNotifyEmail(false);
       onSiteAdded?.(site);
     } catch (err) {
       setError(err.message);
@@ -220,6 +232,39 @@ export default function SiteForm({ teamId, onSiteAdded }) {
             </p>
           </div>
         )}
+
+        {/* Notification flags for the auto-created schedule */}
+        <Field label="Notify" hint="Applied to the auto-created schedule. Toggle anytime later from the Schedules card.">
+          <div className="flex flex-wrap gap-4 pt-1">
+            <label className="inline-flex items-center gap-2 text-[13px] text-lime-ink cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifyAI}
+                onChange={(e) => setNotifyAI(e.target.checked)}
+                className="w-4 h-4 rounded border-lime-deep accent-lime-ink"
+              />
+              <span>🤖 AI analysis</span>
+            </label>
+            <label className="inline-flex items-center gap-2 text-[13px] text-lime-ink cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifySlack}
+                onChange={(e) => setNotifySlack(e.target.checked)}
+                className="w-4 h-4 rounded border-lime-deep accent-lime-ink"
+              />
+              <span># Slack</span>
+            </label>
+            <label className="inline-flex items-center gap-2 text-[13px] text-lime-ink cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.checked)}
+                className="w-4 h-4 rounded border-lime-deep accent-lime-ink"
+              />
+              <span>@ Email</span>
+            </label>
+          </div>
+        </Field>
 
         <div className="grid md:grid-cols-[1fr_auto] grid-cols-1 gap-3">
           <Field label="Logo URL (optional)" hint="Auto-detected from favicon when empty">
