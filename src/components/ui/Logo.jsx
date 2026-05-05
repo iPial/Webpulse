@@ -1,22 +1,27 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { resolveLogoUrl } from '@/lib/logos';
 
 /**
  * <Logo> — site logo tile.
  *
- * Logos are resolved by src/lib/logos.js → custom logo_url (if set) → Google favicon.
- * No monograms, no gradients — just a rounded frame around whatever comes back.
- * If the image fails to load, falls back to plain initials on a neutral square
- * (safe last-resort; should rarely trigger since the favicon service almost always responds).
+ * Uses next/image so the source URL is auto-optimized: WebP/AVIF, srcset
+ * for 1x/2x/3x, and high-quality server-side downsizing. This is what
+ * makes the difference between a soft-looking 256px source rendered into
+ * a 72px CSS box and a sharp one — Next picks the closest deviceSizes
+ * variant and lets the browser render at native pixel mapping.
+ *
+ * Logos are resolved by src/lib/logos.js → custom logo_url (if set) →
+ * Google's favicon service. No monograms.
+ *
+ * If the image fails to load, falls back to plain initials on a neutral
+ * square (safe last-resort; should rarely trigger).
  *
  * Props:
  *   site: { id, name, url, logo_url }
  *   size: 'sm' (32) | 'md' (40) | 'lg' (44) | 'xl' (72)
- *
- * Usage:
- *   <Logo site={site} size="md" />
  */
 
 const SIZE_PX = { sm: 32, md: 40, lg: 44, xl: 72 };
@@ -46,13 +51,13 @@ export default function Logo({ site, size = 'md', className = '' }) {
   const px = SIZE_PX[size] || SIZE_PX.md;
   const radius = SIZE_RADIUS[size] || SIZE_RADIUS.md;
   const font = SIZE_FONT[size] || SIZE_FONT.md;
-  // Request the favicon at 4× CSS size so it stays sharp on retina/3x screens.
-  // Google's favicon service supports sizes up to 256; bumping to 4× covers
-  // even hi-DPI displays without obvious pixelation. (For custom logo_urls
-  // this size is ignored — the URL is returned verbatim.)
+
+  // For favicons (no logo_url), request 4× CSS size — this is just a hint
+  // to Google's service for what to fetch from the source. next/image then
+  // re-optimizes on top.
   const src = resolveLogoUrl(site, Math.max(128, px * 4));
 
-  const frame = `inline-flex items-center justify-center overflow-hidden bg-surface border border-line shadow-1 shrink-0 ${className}`;
+  const frame = `inline-flex items-center justify-center overflow-hidden bg-surface border border-line shadow-1 shrink-0 relative ${className}`;
   const style = { width: px, height: px, borderRadius: radius };
 
   if (!src || errored) {
@@ -68,21 +73,19 @@ export default function Logo({ site, size = 'md', className = '' }) {
   }
 
   return (
-    // Using native <img> so the favicon fallback doesn't require next.config image
-    // remote patterns config. resolveLogoUrl returns either a user-supplied URL
-    // or Google's favicon service — both work fine as plain <img>.
-    // eslint-disable-next-line @next/next/no-img-element
     <span className={frame} style={style}>
-      <img
+      <Image
         src={src}
         alt={site?.name ? `${site.name} logo` : 'site logo'}
-        width={px}
-        height={px}
+        // fill + sizes lets Next pick the optimal srcset entry for the
+        // current viewport's deviceSizes. The `sizes={px}px` hint tells
+        // Next how big the box actually is so it doesn't fetch a huge file.
+        fill
+        sizes={`${px}px`}
         onError={() => setErrored(true)}
-        // contain (not cover) — preserves the source's aspect ratio without
-        // cropping a custom logo_url that isn't square, and keeps native
-        // pixels mapped 1:1 instead of forced-stretching a small favicon.
-        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        style={{ objectFit: 'contain' }}
+        // Logos are above-the-fold on most pages — no point lazy-loading.
+        priority={size === 'xl'}
       />
     </span>
   );
