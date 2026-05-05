@@ -50,7 +50,7 @@ function formatLocalTime(isoString) {
   }
 }
 
-export default function ScheduleManager({ teamId }) {
+export default function ScheduleManager({ teamId, sites = [] }) {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -63,6 +63,10 @@ export default function ScheduleManager({ teamId }) {
   const [notifyEmail, setNotifyEmail] = useState(false);
   const [notifyAI, setNotifyAI] = useState(false);
   const [kind, setKind] = useState('scan');
+  // null/empty = team-wide (all sites). A specific id = scope this schedule
+  // to that single site only — useful for staggering 10+ sites across the
+  // day so PSI rate-limits and notify dispatches don't pile up.
+  const [siteId, setSiteId] = useState('');
 
   const isReportKind = kind === 'weekly_trend_report' || kind === 'monthly_summary_report';
 
@@ -113,6 +117,8 @@ export default function ScheduleManager({ teamId }) {
           notifyEmail,
           notifyAI,
           kind,
+          // Only attach siteId for scan kind; reports are team-wide.
+          ...(kind === 'scan' && siteId ? { siteId: parseInt(siteId, 10) } : {}),
         }),
       });
 
@@ -242,6 +248,7 @@ export default function ScheduleManager({ teamId }) {
     setNotifyEmail(false);
     setNotifyAI(false);
     setKind('scan');
+    setSiteId('');
   }
 
   return (
@@ -313,6 +320,28 @@ export default function ScheduleManager({ teamId }) {
                 : 'No scans. Aggregates the last 30 days vs the prior 30.'}
             </p>
           </Field>
+
+          {!isReportKind && (
+            <Field label="Sites" className="[&_label]:text-white/70">
+              <Select
+                value={siteId}
+                onChange={(e) => setSiteId(e.target.value)}
+                className="bg-white/5 text-surface border-white/10"
+              >
+                <option value="" className="text-ink">All sites in team</option>
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id} className="text-ink">
+                    {s.name}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-[11px] text-white/50 mt-1">
+                {siteId
+                  ? 'This schedule will only scan the selected site. Create one schedule per site to stagger them across the day.'
+                  : 'All enabled sites in the team will scan together.'}
+              </p>
+            </Field>
+          )}
 
           <Field
             label={isReportKind ? 'First send · date & time' : 'Scan date & time'}
@@ -391,6 +420,7 @@ export default function ScheduleManager({ teamId }) {
             <ScheduleRow
               key={schedule.id}
               schedule={schedule}
+              sites={sites}
               onDelete={handleDelete}
               onRunNow={handleRunNow}
               onReset={handleReset}
@@ -408,13 +438,22 @@ const KIND_BADGE = {
   monthly_summary_report: { emoji: '📊', label: 'Monthly summary' },
 };
 
-function ScheduleRow({ schedule, onDelete, onRunNow, onReset, onToggleFlag }) {
+function ScheduleRow({ schedule, sites = [], onDelete, onRunNow, onReset, onToggleFlag }) {
   const config = schedule.config || {};
   const status = config.status || 'pending';
   const statusVariant = STATUS_VARIANT[status] || 'default';
   const statusLabel = STATUS_LABELS[status] || status.charAt(0).toUpperCase() + status.slice(1);
   const kindBadge = config.kind ? KIND_BADGE[config.kind] : null;
   const isReport = !!kindBadge;
+  // For scan schedules, resolve siteId → site name; otherwise show "All sites".
+  const targetedSite = config.siteId ? sites.find((s) => s.id === config.siteId) : null;
+  const sitesLabel = isReport
+    ? null
+    : targetedSite
+    ? targetedSite.name
+    : config.siteId
+    ? `Site #${config.siteId}` // schedule references a site no longer in our list
+    : 'All sites';
   const isStuck =
     status === 'running' &&
     config.runStartedAt &&
@@ -433,6 +472,14 @@ function ScheduleRow({ schedule, onDelete, onRunNow, onReset, onToggleFlag }) {
           ) : (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-r-pill bg-lime/15 text-lime border border-lime/30">
               🔍 Scan
+            </span>
+          )}
+          {sitesLabel && (
+            <span
+              className="text-[11px] font-semibold px-2 py-0.5 rounded-r-pill bg-cobalt/15 text-cobalt border border-cobalt/30 truncate max-w-[200px]"
+              title={sitesLabel}
+            >
+              📍 {sitesLabel}
             </span>
           )}
           <span className="text-[11px] text-white/50 capitalize">{config.frequency || 'once'}</span>

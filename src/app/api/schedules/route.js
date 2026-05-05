@@ -53,7 +53,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { teamId, scheduledAt, frequency, notifySlack, notifyEmail, notifyAI, kind } = body;
+    const { teamId, scheduledAt, frequency, notifySlack, notifyEmail, notifyAI, kind, siteId } = body;
 
     if (!teamId) {
       return NextResponse.json({ error: 'teamId is required' }, { status: 400 });
@@ -71,6 +71,26 @@ export async function POST(request) {
         { error: `kind must be one of: scan, ${validReportKinds.join(', ')}` },
         { status: 400 }
       );
+    }
+
+    // Validate siteId if present — must belong to the same team. Reports
+    // (kind !== 'scan') are always team-wide; siteId is silently ignored.
+    let validatedSiteId = null;
+    if (siteId && (!kind || kind === 'scan')) {
+      const service = createServiceSupabase();
+      const { data: siteRow, error: siteErr } = await service
+        .from('sites')
+        .select('id, team_id')
+        .eq('id', siteId)
+        .maybeSingle();
+      if (siteErr) throw siteErr;
+      if (!siteRow || siteRow.team_id !== teamId) {
+        return NextResponse.json(
+          { error: 'siteId does not belong to this team' },
+          { status: 400 }
+        );
+      }
+      validatedSiteId = siteRow.id;
     }
 
     // Validate the date
@@ -95,6 +115,12 @@ export async function POST(request) {
       config.kind = kind;
       // Reports don't run AI (they aggregate existing scans)
       config.notifyAI = false;
+    }
+
+    // Persist siteId only when provided AND this is a scan schedule.
+    // Empty/null = team-wide (existing behavior, preserved).
+    if (validatedSiteId) {
+      config.siteId = validatedSiteId;
     }
 
     const service = createServiceSupabase();

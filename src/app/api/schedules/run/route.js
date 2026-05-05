@@ -148,12 +148,17 @@ async function dispatchSchedule(supabase, schedule, request) {
     }
   }
 
-  // Default scan-then-notify path.
-  const { data: sites, error: sitesError } = await supabase
+  // Default scan-then-notify path. If cfg.siteId is set, scope the run to
+  // that single site; otherwise scan every enabled site in the team.
+  let sitesQuery = supabase
     .from('sites')
     .select('id, url, name, team_id, tags, logo_url')
     .eq('team_id', teamId)
     .eq('enabled', true);
+  if (cfg.siteId) {
+    sitesQuery = sitesQuery.eq('id', cfg.siteId);
+  }
+  const { data: sites, error: sitesError } = await sitesQuery;
 
   if (sitesError) {
     await failSchedule(supabase, schedule, sitesError.message);
@@ -161,16 +166,19 @@ async function dispatchSchedule(supabase, schedule, request) {
   }
 
   if (!sites || sites.length === 0) {
+    const note = cfg.siteId
+      ? `Site #${cfg.siteId} not found, disabled, or not in team — skipping run`
+      : 'No sites to scan';
     await supabase
       .from('integrations')
       .update({
-        config: { ...cfg, status: 'completed', completedAt: new Date().toISOString(), note: 'No sites to scan' },
+        config: { ...cfg, status: 'completed', completedAt: new Date().toISOString(), note },
       })
       .eq('id', scheduleId);
     await logEvent({
       teamId, type: 'schedule', level: 'warn',
-      message: `Schedule #${scheduleId} has no enabled sites`,
-      metadata: { scheduleId },
+      message: `Schedule #${scheduleId}: ${note.toLowerCase()}`,
+      metadata: { scheduleId, siteId: cfg.siteId || null },
     });
     return { scheduleId, status: 'completed', sitesScanned: 0 };
   }
@@ -256,8 +264,10 @@ async function recoverStuckSchedule(supabase, schedule) {
   const runStartedAt = cfg.runStartedAt;
 
   try {
-    const { data: sites } = await supabase
-      .from('sites').select('id').eq('team_id', teamId).eq('enabled', true);
+    // Scope recovery to the schedule's siteId if set; otherwise team-wide.
+    let q = supabase.from('sites').select('id').eq('team_id', teamId).eq('enabled', true);
+    if (cfg.siteId) q = q.eq('id', cfg.siteId);
+    const { data: sites } = await q;
     const siteIds = (sites || []).map((s) => s.id);
     if (siteIds.length === 0) {
       await failSchedule(supabase, schedule, 'Stuck with no enabled sites.');
@@ -364,7 +374,7 @@ function looksLikePreviewUrl(host) {
 
 async function handleRecurrence(supabase, schedule) {
   const {
-    frequency, scheduledAt, notifySlack, notifyEmail, notifyAI, createdBy, kind,
+    frequency, scheduledAt, notifySlack, notifyEmail, notifyAI, createdBy, kind, siteId,
   } = schedule.config;
   if (!frequency || frequency === 'once') return;
 
@@ -393,6 +403,7 @@ async function handleRecurrence(supabase, schedule) {
     createdBy,
   };
   if (kind) nextConfig.kind = kind;
+  if (siteId) nextConfig.siteId = siteId;
 
   const { data: newSchedule, error } = await supabase
     .from('integrations')

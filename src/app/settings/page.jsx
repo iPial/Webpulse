@@ -35,7 +35,7 @@ export default async function SettingsPage() {
       <ScheduleBanner teamId={team.id} />
 
       <div className="flex flex-col gap-6">
-        <ScheduleManager teamId={team.id} />
+        <ScheduleManager teamId={team.id} sites={sites} />
         <SitesManager teamId={team.id} initialSites={sites} />
 
         <div className="grid md:grid-cols-2 grid-cols-1 gap-6 mt-4">
