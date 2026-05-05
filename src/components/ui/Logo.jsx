@@ -82,6 +82,9 @@ export default function Logo({ site, size = 'md', className = '' }) {
         // Next how big the box actually is so it doesn't fetch a huge file.
         fill
         sizes={`${px}px`}
+        // quality=100: logos are tiny (≤ a few KB) so encoding at max quality
+        // costs nothing and preserves every pixel of source detail.
+        quality={100}
         onError={() => setErrored(true)}
         style={{ objectFit: 'contain' }}
         // Logos are above-the-fold on most pages — no point lazy-loading.
