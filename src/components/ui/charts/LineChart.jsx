@@ -1,13 +1,21 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+
 /**
  * <LineChart> — multi-series line chart with gridlines and x/y labels.
  * Port of renderMulti() from webpulse-redesign/assets/app.js.
+ *
+ * The SVG is rendered at the container's actual pixel width so axis-label
+ * font-sizes stay 10px regardless of container width. Without this the chart
+ * stretched on wide screens (~2000px+) and the labels rendered at ~25–40px.
  *
  * Props:
  *   series: [{ name, color, points: number[] }]
  *   labels: string[] — x-axis labels, same length as each series.points
  *   min / max: y-axis bounds (default: auto from data, floor 0 / ceil 100)
  *   height: px (default 220)
- *   background: 'light' (default) | 'ink' — adjusts grid/label colors for dark cards
+ *   background: 'light' (default) | 'ink' — grid/label colors for dark cards
  */
 
 const LIGHT = {
@@ -23,6 +31,8 @@ const INK = {
   pointFill: 'var(--ink)',
 };
 
+const INITIAL_WIDTH = 600;
+
 export default function LineChart({
   series = [],
   labels = [],
@@ -32,11 +42,30 @@ export default function LineChart({
   background = 'light',
   className = '',
 }) {
+  const containerRef = useRef(null);
+  const [width, setWidth] = useState(INITIAL_WIDTH);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setWidth(Math.max(280, Math.round(el.clientWidth)));
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([entry]) => {
+      const next = Math.max(280, Math.round(entry.contentRect.width));
+      setWidth((prev) => (prev === next ? prev : next));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   if (!Array.isArray(series) || series.length === 0) {
-    return <svg className={className} style={{ width: '100%', height }} />;
+    return (
+      <div ref={containerRef} className={className} style={{ width: '100%', height }} />
+    );
   }
 
-  const w = 600;
+  const w = width;
   const h = height;
   const padL = 36, padR = 16, padT = 16, padB = 28;
   const theme = background === 'ink' ? INK : LIGHT;
@@ -113,16 +142,18 @@ export default function LineChart({
   });
 
   return (
-    <svg
-      className={className}
-      viewBox={`0 0 ${w} ${h}`}
-      preserveAspectRatio="none"
-      style={{ width: '100%', height, display: 'block' }}
-      aria-hidden="true"
-    >
-      {gridlines}
-      {xLabels}
-      {seriesEls}
-    </svg>
+    <div ref={containerRef} className={className} style={{ width: '100%' }}>
+      <svg
+        width={w}
+        height={h}
+        viewBox={`0 0 ${w} ${h}`}
+        style={{ display: 'block' }}
+        aria-hidden="true"
+      >
+        {gridlines}
+        {xLabels}
+        {seriesEls}
+      </svg>
+    </div>
   );
 }

@@ -1,14 +1,18 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+
 /**
  * <Sparkline> — single-line sparkline with area fill.
  * Port of renderSpark() from webpulse-redesign/assets/app.js.
  *
+ * Renders at the container's actual pixel width so the line/dot proportions
+ * match the design across all viewport widths.
+ *
  * Props:
  *   data: number[] — at least 2 points recommended
- *   color: CSS color string (default --ink)
+ *   color: CSS color string (default currentColor)
  *   height: px (default 60)
- *
- * The SVG fills its container's width via viewBox + preserveAspectRatio="none",
- * so no ResizeObserver is needed.
  */
 export default function Sparkline({
   data = [],
@@ -16,11 +20,30 @@ export default function Sparkline({
   height = 60,
   className = '',
 }) {
+  const containerRef = useRef(null);
+  const [width, setWidth] = useState(300);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setWidth(Math.max(60, Math.round(el.clientWidth)));
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([entry]) => {
+      const next = Math.max(60, Math.round(entry.contentRect.width));
+      setWidth((prev) => (prev === next ? prev : next));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   if (!Array.isArray(data) || data.length < 2) {
-    return <svg className={className} style={{ width: '100%', height }} />;
+    return (
+      <div ref={containerRef} className={className} style={{ width: '100%', height }} />
+    );
   }
 
-  const w = 300; // viewBox width; scales via preserveAspectRatio
+  const w = width;
   const h = height;
   const pad = 4;
   const min = Math.min(...data, 0);
@@ -38,16 +61,18 @@ export default function Sparkline({
   const last = pts[pts.length - 1];
 
   return (
-    <svg
-      className={className}
-      viewBox={`0 0 ${w} ${h}`}
-      preserveAspectRatio="none"
-      style={{ width: '100%', height, display: 'block' }}
-      aria-hidden="true"
-    >
-      <path d={area} fill={color} className="spark-area" />
-      <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={last[0]} cy={last[1]} r="3" fill={color} />
-    </svg>
+    <div ref={containerRef} className={className} style={{ width: '100%' }}>
+      <svg
+        width={w}
+        height={h}
+        viewBox={`0 0 ${w} ${h}`}
+        style={{ display: 'block' }}
+        aria-hidden="true"
+      >
+        <path d={area} fill={color} className="spark-area" />
+        <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={last[0]} cy={last[1]} r="3" fill={color} />
+      </svg>
+    </div>
   );
 }

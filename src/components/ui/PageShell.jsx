@@ -54,7 +54,9 @@ export default function PageShell({ children, className = '', publicView = false
             Sign in →
           </Link>
         </header>
-        <main className="p-4 md:p-6 lg:p-[32px] min-w-0 overflow-x-hidden">{children}</main>
+        <main className="p-4 md:p-6 lg:p-[32px] min-w-0 overflow-x-hidden">
+          <div className="max-w-[1400px] mx-auto w-full">{children}</div>
+        </main>
       </div>
     );
   }
