@@ -7,7 +7,12 @@ import Button from '@/components/ui/Button';
 import Pill from '@/components/ui/Pill';
 import Logo from '@/components/ui/Logo';
 import { Input, Select, Field } from '@/components/ui/Field';
-import { DAYS_OF_WEEK, DAYS_OF_MONTH, dayOrdinal } from '@/lib/schedule-helpers';
+import {
+  DAYS_OF_WEEK,
+  DAYS_OF_MONTH,
+  dayOrdinal,
+  computeScheduledAt,
+} from '@/lib/schedule-helpers';
 
 const FREQUENCY_OPTIONS = [
   { value: 'daily', label: 'Daily' },
@@ -28,10 +33,44 @@ const DEFAULT_EDIT_FORM = {
   notifyEmail: false,
 };
 
-export default function SitesManager({ teamId, initialSites }) {
+export default function SitesManager({ teamId, initialSites, initialSchedules = [] }) {
   const [sites, setSites] = useState(initialSites);
+  const [schedules, setSchedules] = useState(initialSchedules);
   const [scanning, setScanning] = useState(null);
   const [scanMessages, setScanMessages] = useState({});
+
+  // Refetch schedules when anything changes (a site added, a site edited,
+  // or another tab updated a schedule). Keeps the "Next scan" column live.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let cancelled = false;
+    async function refetch() {
+      try {
+        const res = await fetch(`/api/schedules?teamId=${teamId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.schedules)) setSchedules(data.schedules);
+      } catch {
+        // best-effort
+      }
+    }
+    function handler() { refetch(); }
+    window.addEventListener('webpulse:sites-updated', handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('webpulse:sites-updated', handler);
+    };
+  }, [teamId]);
+
+  // Build a Map<siteId, schedule> for O(1) lookups in row render. Most
+  // recent schedule wins if a site somehow has multiple.
+  const scheduleBySiteId = new Map();
+  for (const s of schedules) {
+    const sid = s.config?.siteId;
+    if (!sid) continue;
+    const existing = scheduleBySiteId.get(sid);
+    if (!existing || s.id > existing.id) scheduleBySiteId.set(sid, s);
+  }
 
   // Editor state — holds the site currently being edited and its form values.
   const [editingSiteId, setEditingSiteId] = useState(null);
@@ -120,15 +159,31 @@ export default function SitesManager({ teamId, initialSites }) {
     setEditLoading(true);
     setEditError('');
     try {
+      // Compute scheduledAt CLIENT-SIDE so the user's local timezone is
+      // honored. If we ship raw timeOfDay to the server, computeScheduledAt
+      // there runs in Vercel's UTC and "9:00" becomes 9:00 UTC instead of
+      // 9:00 BD. Compute here, send the ISO string, server stores verbatim.
+      let scheduledAtIso = null;
+      try {
+        const computed = computeScheduledAt({
+          frequency: editForm.frequency,
+          oncePicker: null,
+          dayOfWeek: Number(editForm.dayOfWeek),
+          dayOfMonth: Number(editForm.dayOfMonth),
+          timeOfDay: editForm.timeOfDay,
+        });
+        scheduledAtIso = computed.toISOString();
+      } catch (err) {
+        throw new Error(`Invalid schedule timing: ${err.message}`);
+      }
+
       const body = {
         name: editForm.name.trim(),
         url: editForm.url.trim(),
         logoUrl: editForm.logoUrl.trim() || null,
-        // Schedule fields — backend only updates the schedule when these are present
+        // Schedule fields — server uses scheduledAt verbatim, no recompute
         frequency: editForm.frequency,
-        dayOfWeek: Number(editForm.dayOfWeek),
-        dayOfMonth: Number(editForm.dayOfMonth),
-        timeOfDay: editForm.timeOfDay,
+        scheduledAt: scheduledAtIso,
         notifyAI: editForm.notifyAI,
         notifySlack: editForm.notifySlack,
         notifyEmail: editForm.notifyEmail,
@@ -301,6 +356,7 @@ export default function SitesManager({ teamId, initialSites }) {
                     <RowFragment
                       key={site.id}
                       site={site}
+                      schedule={scheduleBySiteId.get(site.id) || null}
                       msg={msg}
                       isEditing={isEditing}
                       editForm={editForm}
@@ -336,6 +392,7 @@ export default function SitesManager({ teamId, initialSites }) {
 // separate component keeps the table-mapping code readable.
 function RowFragment({
   site,
+  schedule,
   msg,
   isEditing,
   editForm,
@@ -384,7 +441,7 @@ function RowFragment({
           <Pill>{site.scan_frequency}</Pill>
         </td>
         <td className="px-3 py-3 text-center font-mono text-[12px] text-muted">
-          {site.enabled ? getNextScanTime(site.scan_frequency) : '—'}
+          {site.enabled ? formatNextScan(site, schedule) : '—'}
         </td>
         <td className="px-3 py-3 text-center">
           <div className="flex items-center justify-center gap-1.5 flex-wrap">
@@ -610,7 +667,31 @@ function EditPanel({ site, form, loading, error, onChange, onSave, onCancel }) {
   );
 }
 
-function getNextScanTime(frequency) {
+// Returns the next scan datetime as a localized string.
+// Preference order:
+//   1. The linked schedule's scheduledAt (the truth for sites with explicit
+//      schedules — most reliable, includes the user's chosen time-of-day).
+//   2. Fallback: the legacy 6am-UTC cron computation, used for sites that
+//      still rely on scan_frequency without an attached schedule.
+function formatNextScan(site, schedule) {
+  if (schedule?.config?.scheduledAt) {
+    const d = new Date(schedule.config.scheduledAt);
+    if (!isNaN(d.getTime())) return formatLocal(d);
+  }
+  return formatLegacyCronNext(site.scan_frequency);
+}
+
+function formatLocal(d) {
+  return (
+    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+    ' ' +
+    d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+  );
+}
+
+// Legacy cron fires at 06:00 UTC for daily, Mondays for weekly, 1st-of-month
+// for monthly. Used only when a site has no attached schedule.
+function formatLegacyCronNext(frequency) {
   const now = new Date();
   const next = new Date(now);
   next.setUTCHours(6, 0, 0, 0);
@@ -622,10 +703,5 @@ function getNextScanTime(frequency) {
     next.setUTCMonth(next.getUTCMonth() + 1, 1);
     next.setUTCHours(6, 0, 0, 0);
   }
-
-  return (
-    next.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-    ' ' +
-    next.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
-  );
+  return formatLocal(next);
 }

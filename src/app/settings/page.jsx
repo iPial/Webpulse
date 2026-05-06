@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { ensureTeam, getSites } from '@/lib/db';
+import { createServiceSupabase } from '@/lib/supabase';
 import SitesManager from '@/components/SitesManager';
 import ScheduleBanner from '@/components/ScheduleBanner';
 import ScheduleManager from '@/components/ScheduleManager';
@@ -13,6 +14,16 @@ export default async function SettingsPage() {
   const cookieStore = await cookies();
   const team = await ensureTeam(cookieStore);
   const sites = await getSites(cookieStore, team.id);
+
+  // Fetch schedules so SitesManager can render each row's "Next scan"
+  // from the actual schedule's scheduledAt (instead of assuming 6am UTC).
+  const service = createServiceSupabase();
+  const { data: schedulesData } = await service
+    .from('integrations')
+    .select('id, config')
+    .eq('team_id', team.id)
+    .eq('type', 'schedule');
+  const schedules = schedulesData || [];
 
   return (
     <PageShell>
@@ -36,7 +47,7 @@ export default async function SettingsPage() {
 
       <div className="flex flex-col gap-6">
         <ScheduleManager teamId={team.id} sites={sites} />
-        <SitesManager teamId={team.id} initialSites={sites} />
+        <SitesManager teamId={team.id} initialSites={sites} initialSchedules={schedules} />
 
         <div className="grid md:grid-cols-2 grid-cols-1 gap-6 mt-4">
           <Card>

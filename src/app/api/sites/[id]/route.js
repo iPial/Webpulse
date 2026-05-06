@@ -2,13 +2,17 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSiteById, updateSite, deleteSite, getUserRole } from '@/lib/db';
 import { createServiceSupabase } from '@/lib/supabase';
-import { computeScheduledAt } from '@/lib/schedule-helpers';
 
 // PATCH /api/sites/[id]
 // Body (all fields optional — pass only what changed):
-//   Site fields:    { name, url, scanFrequency, tags, logoUrl, isPublic, enabled }
-//   Schedule fields: { frequency, dayOfWeek, dayOfMonth, timeOfDay,
-//                      notifyAI, notifySlack, notifyEmail }
+//   Site fields:     { name, url, scanFrequency, tags, logoUrl, isPublic, enabled }
+//   Schedule fields: { frequency, scheduledAt (ISO string), notifyAI, notifySlack, notifyEmail }
+//
+// Note on timing: the client computes scheduledAt and sends an ISO string.
+// We don't recompute it here because Vercel's server runs in UTC and any
+// "9:00" timeOfDay would be interpreted as 9:00 UTC instead of the user's
+// local timezone. Trust the client's computation — same pattern as the
+// /api/schedules POST handler.
 //
 // If any schedule field is present, the route finds the linked schedule
 // (config.siteId === siteId) and updates it; or creates one if missing.
@@ -49,9 +53,7 @@ export async function PATCH(request, { params }) {
     // Detect whether any schedule-shaped field was sent.
     const hasScheduleFields =
       body.frequency !== undefined ||
-      body.dayOfWeek !== undefined ||
-      body.dayOfMonth !== undefined ||
-      body.timeOfDay !== undefined ||
+      body.scheduledAt !== undefined ||
       body.notifyAI !== undefined ||
       body.notifySlack !== undefined ||
       body.notifyEmail !== undefined;
@@ -59,10 +61,8 @@ export async function PATCH(request, { params }) {
     if (hasScheduleFields) {
       const service = createServiceSupabase();
 
-      // Find an existing schedule for this site. We use the JSON path
-      // operator config->>siteId because siteId lives inside the jsonb
-      // config column, and ->> casts the extracted value to text — so we
-      // compare against the stringified id.
+      // Find an existing schedule for this site. config->>siteId extracts
+      // the jsonb value as text, so we compare against the stringified id.
       const { data: existing, error: findError } = await service
         .from('integrations')
         .select('*')
@@ -77,41 +77,24 @@ export async function PATCH(request, { params }) {
         console.error('Schedule lookup error:', findError.message);
       }
 
-      // Compose the new schedule config. Start from existing (preserving
-      // anything we don't touch like createdBy / kind), then overwrite
-      // with the fields the user sent.
+      // Compose the new schedule config — start from existing, overlay
+      // sent fields. scheduledAt comes through verbatim from the client
+      // (already computed in the user's local timezone).
       const baseCfg = existing?.config || { kind: 'scan', siteId, status: 'pending' };
       const nextCfg = { ...baseCfg, siteId };
 
-      // Frequency + timing — only recompute scheduledAt if any of these changed
-      if (
-        body.frequency !== undefined ||
-        body.dayOfWeek !== undefined ||
-        body.dayOfMonth !== undefined ||
-        body.timeOfDay !== undefined
-      ) {
-        const frequency = body.frequency ?? baseCfg.frequency ?? 'daily';
-        // For 'once', oncePicker would be needed; this path handles
-        // recurring schedules (the inline-edit form doesn't expose 'once').
-        try {
-          const computed = computeScheduledAt({
-            frequency,
-            oncePicker: null,
-            dayOfWeek: body.dayOfWeek ?? 1,
-            dayOfMonth: body.dayOfMonth ?? 1,
-            timeOfDay: body.timeOfDay ?? '09:00',
-          });
-          nextCfg.scheduledAt = computed.toISOString();
-          nextCfg.frequency = frequency;
-          // Reset status when timing changes so the next occurrence fires fresh
-          nextCfg.status = 'pending';
-          nextCfg.error = null;
-        } catch (err) {
-          return NextResponse.json(
-            { error: `Invalid schedule timing: ${err.message}` },
-            { status: 400 }
-          );
+      if (body.scheduledAt !== undefined) {
+        const at = new Date(body.scheduledAt);
+        if (isNaN(at.getTime())) {
+          return NextResponse.json({ error: 'Invalid scheduledAt' }, { status: 400 });
         }
+        nextCfg.scheduledAt = at.toISOString();
+        // Reset status when timing changes so the next occurrence fires fresh
+        nextCfg.status = 'pending';
+        nextCfg.error = null;
+      }
+      if (body.frequency !== undefined) {
+        nextCfg.frequency = body.frequency;
       }
 
       // Notification flags — overwrite only if explicitly sent
@@ -141,7 +124,7 @@ export async function PATCH(request, { params }) {
     // ─── Site update path ──────────────────────────────────────────────
     // Strip schedule-only fields before passing to updateSite — that helper
     // whitelists fields and would reject unknown keys.
-    const { frequency, dayOfWeek, dayOfMonth, timeOfDay, notifyAI, notifySlack, notifyEmail, ...siteFields } = body;
+    const { frequency, scheduledAt, notifyAI, notifySlack, notifyEmail, ...siteFields } = body;
 
     let updated = site;
     if (Object.keys(siteFields).length > 0) {
