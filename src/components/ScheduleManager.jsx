@@ -632,21 +632,18 @@ function ScheduleRow({ schedule, sites = [], onDelete, onRunNow, onReset, onTogg
     : config.siteId
     ? [config.siteId]
     : [];
-  let sitesLabel = null;
-  let sitesTooltip = null;
+  // For multi-site schedules we render one pill per site so all names are
+  // visible (no "+N" collapsing). Team-wide schedules show a single
+  // "All sites" pill.
+  let scopedNames = null;
   if (!isReport) {
     if (scopedIds.length === 0) {
-      sitesLabel = 'All sites';
+      scopedNames = ['All sites'];
     } else {
-      const names = scopedIds.map((id) => {
+      scopedNames = scopedIds.map((id) => {
         const s = sites.find((x) => x.id === id);
         return s ? s.name : `Site #${id}`;
       });
-      sitesTooltip = names.join(', ');
-      sitesLabel =
-        names.length === 1
-          ? names[0]
-          : `${names[0]} +${names.length - 1}`;
     }
   }
   const isStuck =
@@ -669,14 +666,15 @@ function ScheduleRow({ schedule, sites = [], onDelete, onRunNow, onReset, onTogg
               🔍 Scan
             </span>
           )}
-          {sitesLabel && (
+          {scopedNames && scopedNames.map((name, i) => (
             <span
+              key={`${name}-${i}`}
               className="text-[11px] font-semibold px-2 py-0.5 rounded-r-pill bg-cobalt/15 text-cobalt border border-cobalt/30 truncate max-w-[200px]"
-              title={sitesTooltip || sitesLabel}
+              title={name}
             >
-              📍 {sitesLabel}
+              📍 {name}
             </span>
-          )}
+          ))}
           <span className="text-[11px] text-white/50 capitalize">{config.frequency || 'once'}</span>
         </div>
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
