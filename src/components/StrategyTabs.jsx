@@ -6,8 +6,18 @@ import VitalsPanel from './VitalsPanel';
 import AuditList from './AuditList';
 import Card from '@/components/ui/Card';
 
-export default function StrategyTabs({ mobile, desktop }) {
-  const [strategy, setStrategy] = useState(mobile ? 'mobile' : 'desktop');
+// StrategyTabs can run controlled (parent passes `strategy` + `onStrategyChange`)
+// or uncontrolled (it manages its own state). The site-detail page lifts state
+// up so this toggle also drives the SiteProgress charts above; other callers
+// can keep using the uncontrolled form.
+export default function StrategyTabs({ mobile, desktop, strategy: controlledStrategy, onStrategyChange }) {
+  const [internalStrategy, setInternalStrategy] = useState(mobile ? 'mobile' : 'desktop');
+  const isControlled = controlledStrategy !== undefined;
+  const strategy = isControlled ? controlledStrategy : internalStrategy;
+  const setStrategy = (next) => {
+    if (isControlled) onStrategyChange?.(next);
+    else setInternalStrategy(next);
+  };
   const result = strategy === 'mobile' ? mobile : desktop;
 
   return (

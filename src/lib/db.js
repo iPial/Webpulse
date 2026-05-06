@@ -208,6 +208,9 @@ export async function deleteSite(cookieStore, siteId) {
 
 // Get a map of siteId → mobile scan history for the given team (last `days` days).
 // Used by the Overview page to render per-site trend charts in one round-trip.
+// Overview's per-site trend chart needs both mobile and desktop history
+// so the card-level toggle can swap which strategy is displayed without
+// another round-trip. Returns rows with `strategy` so the client filters.
 export async function getSiteHistoryForOverview(cookieStore, teamId, { days = 14 } = {}) {
   const supabase = createServerSupabase(cookieStore);
   const since = new Date(Date.now() - days * 86400000).toISOString();
@@ -220,9 +223,8 @@ export async function getSiteHistoryForOverview(cookieStore, teamId, { days = 14
 
   const { data: rows } = await supabase
     .from('scan_results')
-    .select('site_id, performance, accessibility, best_practices, seo, scanned_at')
+    .select('site_id, strategy, performance, accessibility, best_practices, seo, fcp, lcp, scanned_at')
     .in('site_id', sites.map((s) => s.id))
-    .eq('strategy', 'mobile')
     .gte('scanned_at', since)
     .order('scanned_at', { ascending: true });
 

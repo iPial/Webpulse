@@ -8,11 +8,10 @@ import {
   getPublicSiteResults,
 } from '@/lib/db';
 import { createServerSupabase } from '@/lib/supabase';
-import StrategyTabs from '@/components/StrategyTabs';
+import SiteScansView from '@/components/SiteScansView';
 import AIRecommendations from '@/components/AIRecommendations';
 import ScanHistoryTable from '@/components/ScanHistoryTable';
 import SiteDetailActions from '@/components/SiteDetailActions';
-import SiteProgress from '@/components/SiteProgress';
 import PageShell from '@/components/ui/PageShell';
 import Card from '@/components/ui/Card';
 import Logo from '@/components/ui/Logo';
@@ -128,8 +127,7 @@ export default async function SiteDetailPage({ params }) {
       </Card>
 
       <div className="mt-6 flex flex-col gap-6">
-        <SiteProgress results={results} />
-        <StrategyTabs mobile={mobile} desktop={desktop} />
+        <SiteScansView results={results} mobile={mobile} desktop={desktop} />
         <AIRecommendations
           siteId={site.id}
           isWPRocket={site.tags?.includes('wp-rocket')}

@@ -1,11 +1,17 @@
 import Card from '@/components/ui/Card';
 import LineChart from '@/components/ui/charts/LineChart';
 
-// Accepts all mobile scan results for this site (newest first).
-// Computes deltas for: since-last-scan, vs 7 days ago, vs 30 days ago.
-export default function SiteProgress({ results }) {
-  const mobileResults = (results || []).filter((r) => r.strategy === 'mobile');
-  if (mobileResults.length === 0) return null;
+// Accepts all scan results for this site (newest first) and a strategy
+// ('mobile' or 'desktop'). Filters internally so the same component drives
+// the deltas table, the score history chart, and the Core Web Vitals chart
+// in lockstep with the page-level strategy toggle.
+export default function SiteProgress({ results, strategy = 'mobile' }) {
+  const filteredResults = (results || []).filter((r) => r.strategy === strategy);
+  if (filteredResults.length === 0) return null;
+
+  // Keep the variable name `mobileResults` everywhere below to minimize the
+  // diff churn — it now means "results for the selected strategy".
+  const mobileResults = filteredResults;
 
   const latest = mobileResults[0];
   const prev = mobileResults[1] || null;
@@ -54,7 +60,7 @@ export default function SiteProgress({ results }) {
         <div>
           <h2 className="font-semibold text-[15px] text-ink">Progress</h2>
           <p className="text-[12px] text-muted mt-0.5">
-            {mobileResults.length} mobile scan{mobileResults.length !== 1 ? 's' : ''} tracked
+            {mobileResults.length} {strategy} scan{mobileResults.length !== 1 ? 's' : ''} tracked
           </p>
         </div>
       </div>
@@ -97,7 +103,7 @@ export default function SiteProgress({ results }) {
       <div className="px-2 pb-2 grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] grid-cols-1 gap-4">
         <div>
           <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-muted mb-3">
-            Score history (mobile, last {Math.min(mobileResults.length, 30)} scans)
+            Score history ({strategy}, last {Math.min(mobileResults.length, 30)} scans)
           </p>
           {reversed.length >= 2 ? (
             <LineChart series={series} labels={labels} min={0} max={105} height={260} />
