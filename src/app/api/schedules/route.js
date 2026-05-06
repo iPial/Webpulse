@@ -4,13 +4,16 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase';
 import { getUserTeams } from '@/lib/db';
 import { logEvent } from '@/lib/logs';
 
-// GET /api/schedules?teamId=xxx
-// List all schedules (integrations where type='schedule') for the team
+// GET /api/schedules?teamId=xxx[&siteId=yyy]
+// List all schedules (integrations where type='schedule') for the team.
+// Optional siteId filter narrows to schedules whose config.siteId matches —
+// used by the inline site-edit panel to pre-fill timing fields.
 export async function GET(request) {
   try {
     const cookieStore = await cookies();
     const { searchParams } = new URL(request.url);
     let teamId = searchParams.get('teamId');
+    const siteIdFilter = searchParams.get('siteId');
 
     if (!teamId) {
       const teams = await getUserTeams(cookieStore);
@@ -21,13 +24,19 @@ export async function GET(request) {
     }
 
     const supabase = createServiceSupabase();
-    const { data, error } = await supabase
+    let query = supabase
       .from('integrations')
       .select('*')
       .eq('team_id', teamId)
       .eq('type', 'schedule')
       .order('created_at', { ascending: false });
 
+    if (siteIdFilter) {
+      // jsonb extraction: config->>siteId returns text, so compare as string.
+      query = query.eq('config->>siteId', String(siteIdFilter));
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
 
     return NextResponse.json({ schedules: data });

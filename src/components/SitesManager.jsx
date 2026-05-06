@@ -6,36 +6,38 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Pill from '@/components/ui/Pill';
 import Logo from '@/components/ui/Logo';
-import { Input } from '@/components/ui/Field';
+import { Input, Select, Field } from '@/components/ui/Field';
+import { DAYS_OF_WEEK, DAYS_OF_MONTH, dayOrdinal } from '@/lib/schedule-helpers';
+
+const FREQUENCY_OPTIONS = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+];
+
+const DEFAULT_EDIT_FORM = {
+  name: '',
+  url: '',
+  logoUrl: '',
+  frequency: 'daily',
+  dayOfWeek: 1,
+  dayOfMonth: 1,
+  timeOfDay: '09:00',
+  notifyAI: true,
+  notifySlack: false,
+  notifyEmail: false,
+};
 
 export default function SitesManager({ teamId, initialSites }) {
   const [sites, setSites] = useState(initialSites);
   const [scanning, setScanning] = useState(null);
-  const [scanMessages, setScanMessages] = useState({}); // { siteId: { type, text } }
-  const [editingLogoId, setEditingLogoId] = useState(null);
-  const [logoInput, setLogoInput] = useState('');
+  const [scanMessages, setScanMessages] = useState({});
 
-  async function handleSaveLogo(site) {
-    try {
-      const res = await fetch(`/api/sites/${site.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logoUrl: logoInput.trim() || null }),
-      });
-      if (!res.ok) return;
-      const { site: updated } = await res.json();
-      setSites((prev) => prev.map((s) => (s.id === site.id ? updated : s)));
-      setEditingLogoId(null);
-      setLogoInput('');
-    } catch {
-      // ignore
-    }
-  }
-
-  function openLogoEditor(site) {
-    setEditingLogoId(site.id);
-    setLogoInput(site.logo_url || '');
-  }
+  // Editor state — holds the site currently being edited and its form values.
+  const [editingSiteId, setEditingSiteId] = useState(null);
+  const [editForm, setEditForm] = useState(DEFAULT_EDIT_FORM);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState('');
 
   useEffect(() => {
     const ids = Object.keys(scanMessages);
@@ -49,12 +51,110 @@ export default function SitesManager({ teamId, initialSites }) {
     notifySitesUpdated();
   }
 
-  // Tell ScheduleManager (and any other listener) that the site list changed
-  // so it can refetch and show new sites in its picker without a full reload.
   function notifySitesUpdated() {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('webpulse:sites-updated'));
   }
+
+  // ── Edit panel ────────────────────────────────────────────────────────
+
+  async function openEditor(site) {
+    setEditError('');
+    setEditingSiteId(site.id);
+
+    // Pre-fill from site fields. Schedule fields default to sensible values
+    // until the linked schedule (if any) loads and overwrites them.
+    setEditForm({
+      name: site.name || '',
+      url: site.url || '',
+      logoUrl: site.logo_url || '',
+      frequency:
+        site.scan_frequency && site.scan_frequency !== 'custom'
+          ? site.scan_frequency
+          : 'daily',
+      dayOfWeek: 1,
+      dayOfMonth: 1,
+      timeOfDay: '09:00',
+      notifyAI: true,
+      notifySlack: false,
+      notifyEmail: false,
+    });
+
+    // Fetch the linked schedule (if any) and overlay its fields.
+    try {
+      const res = await fetch(`/api/schedules?teamId=${teamId}&siteId=${site.id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const schedule = (data.schedules || [])[0];
+      if (!schedule) return;
+      const cfg = schedule.config || {};
+
+      // Derive day-of-week / day-of-month / time-of-day from the stored
+      // scheduledAt, in the user's local timezone.
+      const at = cfg.scheduledAt ? new Date(cfg.scheduledAt) : null;
+      const pad = (n) => String(n).padStart(2, '0');
+      const fields = {};
+      if (at && !isNaN(at.getTime())) {
+        fields.dayOfWeek = at.getDay();
+        fields.dayOfMonth = at.getDate();
+        fields.timeOfDay = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+      }
+      if (cfg.frequency && cfg.frequency !== 'once') fields.frequency = cfg.frequency;
+      if (cfg.notifyAI !== undefined) fields.notifyAI = !!cfg.notifyAI;
+      if (cfg.notifySlack !== undefined) fields.notifySlack = !!cfg.notifySlack;
+      if (cfg.notifyEmail !== undefined) fields.notifyEmail = !!cfg.notifyEmail;
+
+      setEditForm((prev) => ({ ...prev, ...fields }));
+    } catch {
+      // best-effort — form falls back to defaults
+    }
+  }
+
+  function closeEditor() {
+    setEditingSiteId(null);
+    setEditForm(DEFAULT_EDIT_FORM);
+    setEditError('');
+  }
+
+  async function saveEditor(site) {
+    setEditLoading(true);
+    setEditError('');
+    try {
+      const body = {
+        name: editForm.name.trim(),
+        url: editForm.url.trim(),
+        logoUrl: editForm.logoUrl.trim() || null,
+        // Schedule fields — backend only updates the schedule when these are present
+        frequency: editForm.frequency,
+        dayOfWeek: Number(editForm.dayOfWeek),
+        dayOfMonth: Number(editForm.dayOfMonth),
+        timeOfDay: editForm.timeOfDay,
+        notifyAI: editForm.notifyAI,
+        notifySlack: editForm.notifySlack,
+        notifyEmail: editForm.notifyEmail,
+      };
+      const res = await fetch(`/api/sites/${site.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || data.details || 'Failed to save');
+      }
+      const { site: updated } = await res.json();
+      setSites((prev) => prev.map((s) => (s.id === site.id ? { ...s, ...updated } : s)));
+      // Tell the Schedules card to refresh its picker + list
+      notifySitesUpdated();
+      closeEditor();
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
+  // ── Site mutations (unchanged behavior) ───────────────────────────────
 
   async function handleToggle(siteId, enabled) {
     const res = await fetch(`/api/sites/${siteId}`, {
@@ -105,7 +205,6 @@ export default function SitesManager({ teamId, initialSites }) {
         [siteId]: { type: 'success', text: 'Public link copied to clipboard' },
       }));
     } catch {
-      // Fallback: show the URL inline so the user can copy manually.
       window.prompt('Copy this public link:', url);
     }
   }
@@ -116,6 +215,7 @@ export default function SitesManager({ teamId, initialSites }) {
     if (res.ok) {
       setSites((prev) => prev.filter((s) => s.id !== siteId));
       setScanMessages((prev) => { const next = { ...prev }; delete next[siteId]; return next; });
+      if (editingSiteId === siteId) closeEditor();
       notifySitesUpdated();
     }
   }
@@ -175,7 +275,9 @@ export default function SitesManager({ teamId, initialSites }) {
           <div className="flex items-center justify-between mb-3 px-2 pt-2">
             <div>
               <h3 className="font-semibold text-[15px] text-ink">Your sites</h3>
-              <p className="text-[12px] text-muted mt-0.5">Click Scan now to run Lighthouse on both strategies.</p>
+              <p className="text-[12px] text-muted mt-0.5">
+                Click <strong>Edit</strong> to change a site&apos;s name, URL, logo, schedule, or notifications.
+              </p>
             </div>
           </div>
 
@@ -194,135 +296,30 @@ export default function SitesManager({ teamId, initialSites }) {
               <tbody>
                 {sites.map((site) => {
                   const msg = scanMessages[site.id];
-                  const isEditingLogo = editingLogoId === site.id;
+                  const isEditing = editingSiteId === site.id;
                   return (
-                    <tr key={site.id} className="border-b border-line/60 last:border-0">
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-3">
-                          <Logo site={site} size="sm" />
-                          <div className="min-w-0">
-                            <div className="font-semibold text-ink flex items-center gap-2">
-                              {site.name}
-                              <button
-                                onClick={() => (isEditingLogo ? setEditingLogoId(null) : openLogoEditor(site))}
-                                className="text-[10px] text-muted hover:text-cobalt transition-colors underline-offset-2 hover:underline"
-                                title="Edit logo URL"
-                              >
-                                {isEditingLogo ? 'cancel' : site.logo_url ? 'edit logo' : 'custom logo'}
-                              </button>
-                            </div>
-                            {isEditingLogo && (
-                              <div className="mt-2 flex items-center gap-2">
-                                <Input
-                                  type="text"
-                                  value={logoInput}
-                                  onChange={(e) => setLogoInput(e.target.value)}
-                                  placeholder="https://… (leave empty to use favicon)"
-                                  className="flex-1 min-w-0 py-1 text-[12px]"
-                                />
-                                <Button size="sm" variant="ink" onClick={() => handleSaveLogo(site)}>
-                                  Save
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {msg && (
-                          <div
-                            className={`text-[11px] mt-1 ${
-                              msg.type === 'error' ? 'text-bad' : msg.type === 'success' ? 'text-good' : 'text-cobalt'
-                            }`}
-                          >
-                            {msg.type === 'info' && (
-                              <span className="inline-flex items-center gap-1">
-                                <span className="w-3 h-3 border-2 border-line border-t-cobalt rounded-full animate-spin" />
-                                {msg.text}
-                              </span>
-                            )}
-                            {msg.type !== 'info' && msg.text}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 font-mono text-[12px] text-muted max-w-xs truncate">
-                        {site.url}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Pill>{site.scan_frequency}</Pill>
-                      </td>
-                      <td className="px-3 py-3 text-center font-mono text-[12px] text-muted">
-                        {site.enabled ? getNextScanTime(site.scan_frequency) : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                          <button
-                            onClick={() => handleToggle(site.id, site.enabled)}
-                            className={`text-[11px] px-2.5 py-0.5 rounded-r-pill border transition-colors ${
-                              site.enabled
-                                ? 'bg-good-bg text-good border-good/20 hover:brightness-95'
-                                : 'bg-paper-2 text-muted border-line hover:bg-paper'
-                            }`}
-                          >
-                            {site.enabled ? '● Active' : 'Paused'}
-                          </button>
-                          <button
-                            onClick={() => handleToggleWPRocket(site)}
-                            title="Tag this site as using WP Rocket. AI analysis will give WP Rocket-specific fix instructions."
-                            className={`text-[10px] px-2 py-0.5 rounded-r-pill border transition-colors ${
-                              site.tags?.includes('wp-rocket')
-                                ? 'bg-violet/15 text-violet border-violet/30'
-                                : 'bg-paper-2 text-muted border-line hover:bg-paper'
-                            }`}
-                          >
-                            🚀 WP Rocket
-                          </button>
-                          <button
-                            onClick={() => handleTogglePublic(site)}
-                            title={
-                              site.is_public
-                                ? 'Public — anyone with the report URL can view this site, no login required. Click to make private.'
-                                : 'Private — only team members can view. Click to allow public read-only access (Slack/email links work for stakeholders).'
-                            }
-                            className={`text-[10px] px-2 py-0.5 rounded-r-pill border transition-colors ${
-                              site.is_public
-                                ? 'bg-good-bg text-good border-good/30'
-                                : 'bg-paper-2 text-muted border-line hover:bg-paper'
-                            }`}
-                          >
-                            {site.is_public ? '🔗 Public' : '🔒 Private'}
-                          </button>
-                          {site.is_public && (
-                            <button
-                              onClick={() => copyPublicLink(site.id)}
-                              title="Copy public report URL"
-                              className="text-[10px] px-2 py-0.5 rounded-r-pill border bg-cobalt/10 text-cobalt border-cobalt/30 hover:bg-cobalt/15 inline-flex items-center gap-1"
-                            >
-                              📋 Copy link
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => handleScan(site.id)}
-                            disabled={scanning === site.id}
-                          >
-                            {scanning === site.id ? (
-                              <span className="inline-flex items-center gap-1">
-                                <span className="w-3 h-3 border-2 border-line border-t-cobalt rounded-full animate-spin" />
-                                Scanning
-                              </span>
-                            ) : (
-                              'Scan now'
-                            )}
-                          </Button>
-                          <Button size="sm" variant="danger" onClick={() => handleDelete(site.id)}>
-                            Delete
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
+                    <RowFragment
+                      key={site.id}
+                      site={site}
+                      msg={msg}
+                      isEditing={isEditing}
+                      editForm={editForm}
+                      editLoading={editLoading}
+                      editError={editError}
+                      scanning={scanning}
+                      onEdit={openEditor}
+                      onCloseEdit={closeEditor}
+                      onSaveEdit={saveEditor}
+                      onChangeEditField={(field, value) =>
+                        setEditForm((prev) => ({ ...prev, [field]: value }))
+                      }
+                      onToggle={handleToggle}
+                      onToggleWPRocket={handleToggleWPRocket}
+                      onTogglePublic={handleTogglePublic}
+                      onCopyPublicLink={copyPublicLink}
+                      onScan={handleScan}
+                      onDelete={handleDelete}
+                    />
                   );
                 })}
               </tbody>
@@ -330,6 +327,285 @@ export default function SitesManager({ teamId, initialSites }) {
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+// One site renders as two table rows when editing: the data row, then an
+// expanded edit panel below it spanning all columns. Keeping it as a
+// separate component keeps the table-mapping code readable.
+function RowFragment({
+  site,
+  msg,
+  isEditing,
+  editForm,
+  editLoading,
+  editError,
+  scanning,
+  onEdit,
+  onCloseEdit,
+  onSaveEdit,
+  onChangeEditField,
+  onToggle,
+  onToggleWPRocket,
+  onTogglePublic,
+  onCopyPublicLink,
+  onScan,
+  onDelete,
+}) {
+  return (
+    <>
+      <tr className="border-b border-line/60 last:border-0">
+        <td className="px-3 py-3">
+          <div className="flex items-center gap-3">
+            <Logo site={site} size="sm" />
+            <div className="min-w-0">
+              <div className="font-semibold text-ink">{site.name}</div>
+            </div>
+          </div>
+          {msg && (
+            <div
+              className={`text-[11px] mt-1 ${
+                msg.type === 'error' ? 'text-bad' : msg.type === 'success' ? 'text-good' : 'text-cobalt'
+              }`}
+            >
+              {msg.type === 'info' && (
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-3 h-3 border-2 border-line border-t-cobalt rounded-full animate-spin" />
+                  {msg.text}
+                </span>
+              )}
+              {msg.type !== 'info' && msg.text}
+            </div>
+          )}
+        </td>
+        <td className="px-3 py-3 font-mono text-[12px] text-muted max-w-xs truncate">{site.url}</td>
+        <td className="px-3 py-3 text-center">
+          <Pill>{site.scan_frequency}</Pill>
+        </td>
+        <td className="px-3 py-3 text-center font-mono text-[12px] text-muted">
+          {site.enabled ? getNextScanTime(site.scan_frequency) : '—'}
+        </td>
+        <td className="px-3 py-3 text-center">
+          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => onToggle(site.id, site.enabled)}
+              className={`text-[11px] px-2.5 py-0.5 rounded-r-pill border transition-colors ${
+                site.enabled
+                  ? 'bg-good-bg text-good border-good/20 hover:brightness-95'
+                  : 'bg-paper-2 text-muted border-line hover:bg-paper'
+              }`}
+            >
+              {site.enabled ? '● Active' : 'Paused'}
+            </button>
+            <button
+              onClick={() => onToggleWPRocket(site)}
+              title="Tag this site as using WP Rocket. AI analysis will give WP Rocket-specific fix instructions."
+              className={`text-[10px] px-2 py-0.5 rounded-r-pill border transition-colors ${
+                site.tags?.includes('wp-rocket')
+                  ? 'bg-violet/15 text-violet border-violet/30'
+                  : 'bg-paper-2 text-muted border-line hover:bg-paper'
+              }`}
+            >
+              🚀 WP Rocket
+            </button>
+            <button
+              onClick={() => onTogglePublic(site)}
+              title={
+                site.is_public
+                  ? 'Public — anyone with the report URL can view this site, no login required. Click to make private.'
+                  : 'Private — only team members can view. Click to allow public read-only access (Slack/email links work for stakeholders).'
+              }
+              className={`text-[10px] px-2 py-0.5 rounded-r-pill border transition-colors ${
+                site.is_public
+                  ? 'bg-good-bg text-good border-good/30'
+                  : 'bg-paper-2 text-muted border-line hover:bg-paper'
+              }`}
+            >
+              {site.is_public ? '🔗 Public' : '🔒 Private'}
+            </button>
+            {site.is_public && (
+              <button
+                onClick={() => onCopyPublicLink(site.id)}
+                title="Copy public report URL"
+                className="text-[10px] px-2 py-0.5 rounded-r-pill border bg-cobalt/10 text-cobalt border-cobalt/30 hover:bg-cobalt/15 inline-flex items-center gap-1"
+              >
+                📋 Copy link
+              </button>
+            )}
+          </div>
+        </td>
+        <td className="px-3 py-3 text-right">
+          <div className="inline-flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => onScan(site.id)}
+              disabled={scanning === site.id}
+            >
+              {scanning === site.id ? (
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-3 h-3 border-2 border-line border-t-cobalt rounded-full animate-spin" />
+                  Scanning
+                </span>
+              ) : (
+                'Scan now'
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant={isEditing ? 'ink' : 'default'}
+              onClick={() => (isEditing ? onCloseEdit() : onEdit(site))}
+            >
+              {isEditing ? 'Close' : 'Edit'}
+            </Button>
+            <Button size="sm" variant="danger" onClick={() => onDelete(site.id)}>
+              Delete
+            </Button>
+          </div>
+        </td>
+      </tr>
+
+      {isEditing && (
+        <tr className="border-b border-line/60 last:border-0">
+          <td colSpan={6} className="px-3 py-4 bg-paper-2/40">
+            <EditPanel
+              site={site}
+              form={editForm}
+              loading={editLoading}
+              error={editError}
+              onChange={onChangeEditField}
+              onSave={() => onSaveEdit(site)}
+              onCancel={onCloseEdit}
+            />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function EditPanel({ site, form, loading, error, onChange, onSave, onCancel }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h4 className="font-semibold text-[14px] text-ink">Edit site</h4>
+        <span className="text-[11px] text-muted">id: {site.id}</span>
+      </div>
+
+      {error && (
+        <div className="rounded-r-sm bg-bad-bg border border-bad/20 p-3 text-[12px] text-bad">
+          {error}
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-2 grid-cols-1 gap-3">
+        <Field label="Site name">
+          <Input value={form.name} onChange={(e) => onChange('name', e.target.value)} required />
+        </Field>
+        <Field label="URL">
+          <Input value={form.url} onChange={(e) => onChange('url', e.target.value)} required />
+        </Field>
+      </div>
+
+      <Field label="Logo URL (optional)" hint="Auto-detected from favicon when empty.">
+        <Input
+          value={form.logoUrl}
+          onChange={(e) => onChange('logoUrl', e.target.value)}
+          placeholder="https://… or leave empty"
+        />
+      </Field>
+
+      <div className="grid md:grid-cols-3 grid-cols-1 gap-3">
+        <Field label="Frequency">
+          <Select
+            value={form.frequency}
+            onChange={(e) => onChange('frequency', e.target.value)}
+          >
+            {FREQUENCY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
+        </Field>
+
+        {form.frequency === 'weekly' && (
+          <Field label="Day of week">
+            <Select
+              value={form.dayOfWeek}
+              onChange={(e) => onChange('dayOfWeek', Number(e.target.value))}
+            >
+              {DAYS_OF_WEEK.map((d) => (
+                <option key={d.value} value={d.value}>{d.label}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
+
+        {form.frequency === 'monthly' && (
+          <Field label="Day of month">
+            <Select
+              value={form.dayOfMonth}
+              onChange={(e) => onChange('dayOfMonth', Number(e.target.value))}
+            >
+              {DAYS_OF_MONTH.map((d) => (
+                <option key={d} value={d}>{dayOrdinal(d)}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
+
+        <Field label="Time of day (local)">
+          <Input
+            type="time"
+            value={form.timeOfDay}
+            onChange={(e) => onChange('timeOfDay', e.target.value)}
+            required
+          />
+        </Field>
+      </div>
+
+      <Field
+        label="Notifications"
+        hint="Applied to the schedule attached to this site. Toggling here is equivalent to clicking the per-row pills in the Schedules card."
+      >
+        <div className="flex flex-wrap gap-4 pt-1">
+          <label className="inline-flex items-center gap-2 text-[13px] text-ink cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.notifyAI}
+              onChange={(e) => onChange('notifyAI', e.target.checked)}
+              className="w-4 h-4 rounded border-line accent-ink"
+            />
+            <span>🤖 AI analysis</span>
+          </label>
+          <label className="inline-flex items-center gap-2 text-[13px] text-ink cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.notifySlack}
+              onChange={(e) => onChange('notifySlack', e.target.checked)}
+              className="w-4 h-4 rounded border-line accent-ink"
+            />
+            <span># Slack</span>
+          </label>
+          <label className="inline-flex items-center gap-2 text-[13px] text-ink cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.notifyEmail}
+              onChange={(e) => onChange('notifyEmail', e.target.checked)}
+              className="w-4 h-4 rounded border-line accent-ink"
+            />
+            <span>@ Email</span>
+          </label>
+        </div>
+      </Field>
+
+      <div className="flex items-center gap-2 pt-1">
+        <Button variant="ink" onClick={onSave} disabled={loading}>
+          {loading ? 'Saving…' : 'Save changes'}
+        </Button>
+        <Button variant="ghost" onClick={onCancel} disabled={loading}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }
