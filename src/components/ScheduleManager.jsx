@@ -70,10 +70,11 @@ export default function ScheduleManager({ teamId, sites = [] }) {
   const [notifyEmail, setNotifyEmail] = useState(false);
   const [notifyAI, setNotifyAI] = useState(false);
   const [kind, setKind] = useState('scan');
-  // null/empty = team-wide (all sites). A specific id = scope this schedule
-  // to that single site only — useful for staggering 10+ sites across the
-  // day so PSI rate-limits and notify dispatches don't pile up.
-  const [siteId, setSiteId] = useState('');
+  // Site scope state. `allSites` true → no scope (team-wide). When false,
+  // `selectedSiteIds` holds the specific sites the schedule should fire for.
+  // The earlier single-site picker is folded into this multi-select model.
+  const [allSites, setAllSites] = useState(true);
+  const [selectedSiteIds, setSelectedSiteIds] = useState([]);
   // Recurrence-specific fields. scheduledAt above is the source of truth for
   // 'once', these are for 'daily' / 'weekly' / 'monthly'. handleCreate picks
   // which inputs to compose into the final ISO timestamp based on `frequency`.
@@ -163,8 +164,11 @@ export default function ScheduleManager({ teamId, sites = [] }) {
           notifyEmail,
           notifyAI,
           kind,
-          // Only attach siteId for scan kind; reports are team-wide.
-          ...(kind === 'scan' && siteId ? { siteId: parseInt(siteId, 10) } : {}),
+          // Reports are always team-wide; only scan kind respects siteIds.
+          // allSites=true → no siteIds field → backend treats as team-wide.
+          ...(kind === 'scan' && !allSites && selectedSiteIds.length > 0
+            ? { siteIds: selectedSiteIds }
+            : {}),
         }),
       });
 
@@ -294,7 +298,8 @@ export default function ScheduleManager({ teamId, sites = [] }) {
     setNotifyEmail(false);
     setNotifyAI(false);
     setKind('scan');
-    setSiteId('');
+    setAllSites(true);
+    setSelectedSiteIds([]);
     setDayOfWeek(1);
     setDayOfMonth(1);
     setTimeOfDay('09:00');
@@ -372,22 +377,66 @@ export default function ScheduleManager({ teamId, sites = [] }) {
 
           {!isReportKind && (
             <Field label="Sites" className="[&_label]:text-white/70">
-              <Select
-                value={siteId}
-                onChange={(e) => setSiteId(e.target.value)}
-                className="bg-white/5 text-surface border-white/10"
-              >
-                <option value="" className="text-ink">All sites in team</option>
-                {sitesList.map((s) => (
-                  <option key={s.id} value={s.id} className="text-ink">
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
-              <p className="text-[11px] text-white/50 mt-1">
-                {siteId
-                  ? 'This schedule will only scan the selected site. Create one schedule per site to stagger them across the day.'
-                  : 'All enabled sites in the team will scan together.'}
+              {/* Top-level toggle: team-wide vs specific. Below: scrollable
+                  checkbox list of individual sites, only shown when 'all
+                  sites' is off. Lets users build a multi-site schedule
+                  ("BetterDocs + Essential Addons every Monday at 9am")
+                  without creating two separate schedules. */}
+              <label className="inline-flex items-center gap-2 text-[13px] text-surface cursor-pointer mb-2">
+                <input
+                  type="checkbox"
+                  checked={allSites}
+                  onChange={(e) => {
+                    setAllSites(e.target.checked);
+                    if (e.target.checked) setSelectedSiteIds([]);
+                  }}
+                  className="w-4 h-4 rounded border-white/20 bg-white/5 text-lime focus:ring-lime"
+                />
+                <span>All sites in team</span>
+              </label>
+
+              {!allSites && (
+                <div className="rounded-r-sm border border-white/10 bg-white/5 p-3 max-h-[180px] overflow-y-auto flex flex-col gap-1.5">
+                  {sitesList.length === 0 ? (
+                    <p className="text-[12px] text-white/50">
+                      No sites yet. Add one in the Sites table below.
+                    </p>
+                  ) : (
+                    sitesList.map((s) => {
+                      const checked = selectedSiteIds.includes(s.id);
+                      return (
+                        <label
+                          key={s.id}
+                          className="inline-flex items-center gap-2 text-[13px] text-surface cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              setSelectedSiteIds((prev) =>
+                                e.target.checked
+                                  ? [...prev, s.id]
+                                  : prev.filter((id) => id !== s.id)
+                              );
+                            }}
+                            className="w-4 h-4 rounded border-white/20 bg-white/5 text-lime focus:ring-lime"
+                          />
+                          <span className="truncate">{s.name}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              <p className="text-[11px] text-white/50 mt-2">
+                {allSites
+                  ? 'All enabled sites in the team will scan together.'
+                  : selectedSiteIds.length === 0
+                  ? 'Pick one or more sites above. Empty = nothing will scan.'
+                  : selectedSiteIds.length === 1
+                  ? 'This schedule will only scan the selected site.'
+                  : `This schedule will scan ${selectedSiteIds.length} sites together.`}
               </p>
             </Field>
           )}
@@ -576,15 +625,30 @@ function ScheduleRow({ schedule, sites = [], onDelete, onRunNow, onReset, onTogg
   const statusLabel = STATUS_LABELS[status] || status.charAt(0).toUpperCase() + status.slice(1);
   const kindBadge = config.kind ? KIND_BADGE[config.kind] : null;
   const isReport = !!kindBadge;
-  // For scan schedules, resolve siteId → site name; otherwise show "All sites".
-  const targetedSite = config.siteId ? sites.find((s) => s.id === config.siteId) : null;
-  const sitesLabel = isReport
-    ? null
-    : targetedSite
-    ? targetedSite.name
+  // Resolve scope → display label. Prefer config.siteIds (multi-site); fall
+  // back to config.siteId (legacy single). Anything missing = team-wide.
+  const scopedIds = Array.isArray(config.siteIds) && config.siteIds.length > 0
+    ? config.siteIds
     : config.siteId
-    ? `Site #${config.siteId}` // schedule references a site no longer in our list
-    : 'All sites';
+    ? [config.siteId]
+    : [];
+  let sitesLabel = null;
+  let sitesTooltip = null;
+  if (!isReport) {
+    if (scopedIds.length === 0) {
+      sitesLabel = 'All sites';
+    } else {
+      const names = scopedIds.map((id) => {
+        const s = sites.find((x) => x.id === id);
+        return s ? s.name : `Site #${id}`;
+      });
+      sitesTooltip = names.join(', ');
+      sitesLabel =
+        names.length === 1
+          ? names[0]
+          : `${names[0]} +${names.length - 1}`;
+    }
+  }
   const isStuck =
     status === 'running' &&
     config.runStartedAt &&
@@ -608,7 +672,7 @@ function ScheduleRow({ schedule, sites = [], onDelete, onRunNow, onReset, onTogg
           {sitesLabel && (
             <span
               className="text-[11px] font-semibold px-2 py-0.5 rounded-r-pill bg-cobalt/15 text-cobalt border border-cobalt/30 truncate max-w-[200px]"
-              title={sitesLabel}
+              title={sitesTooltip || sitesLabel}
             >
               📍 {sitesLabel}
             </span>

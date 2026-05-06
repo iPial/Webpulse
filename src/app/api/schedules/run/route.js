@@ -148,15 +148,17 @@ async function dispatchSchedule(supabase, schedule, request) {
     }
   }
 
-  // Default scan-then-notify path. If cfg.siteId is set, scope the run to
-  // that single site; otherwise scan every enabled site in the team.
+  // Default scan-then-notify path. If cfg.siteIds (preferred, array) or
+  // cfg.siteId (legacy single) is set, scope the run to those sites only;
+  // otherwise scan every enabled site in the team.
+  const scopedSiteIds = resolveScopedSiteIds(cfg);
   let sitesQuery = supabase
     .from('sites')
     .select('id, url, name, team_id, tags, logo_url')
     .eq('team_id', teamId)
     .eq('enabled', true);
-  if (cfg.siteId) {
-    sitesQuery = sitesQuery.eq('id', cfg.siteId);
+  if (scopedSiteIds && scopedSiteIds.length > 0) {
+    sitesQuery = sitesQuery.in('id', scopedSiteIds);
   }
   const { data: sites, error: sitesError } = await sitesQuery;
 
@@ -166,8 +168,8 @@ async function dispatchSchedule(supabase, schedule, request) {
   }
 
   if (!sites || sites.length === 0) {
-    const note = cfg.siteId
-      ? `Site #${cfg.siteId} not found, disabled, or not in team — skipping run`
+    const note = scopedSiteIds && scopedSiteIds.length > 0
+      ? `Sites ${scopedSiteIds.join(', ')} not found, disabled, or not in team — skipping run`
       : 'No sites to scan';
     await supabase
       .from('integrations')
@@ -178,7 +180,7 @@ async function dispatchSchedule(supabase, schedule, request) {
     await logEvent({
       teamId, type: 'schedule', level: 'warn',
       message: `Schedule #${scheduleId}: ${note.toLowerCase()}`,
-      metadata: { scheduleId, siteId: cfg.siteId || null },
+      metadata: { scheduleId, scopedSiteIds: scopedSiteIds || null },
     });
     return { scheduleId, status: 'completed', sitesScanned: 0 };
   }
@@ -264,9 +266,11 @@ async function recoverStuckSchedule(supabase, schedule) {
   const runStartedAt = cfg.runStartedAt;
 
   try {
-    // Scope recovery to the schedule's siteId if set; otherwise team-wide.
+    // Scope recovery to the schedule's siteIds (or legacy siteId);
+    // otherwise team-wide.
+    const recoverScope = resolveScopedSiteIds(cfg);
     let q = supabase.from('sites').select('id').eq('team_id', teamId).eq('enabled', true);
-    if (cfg.siteId) q = q.eq('id', cfg.siteId);
+    if (recoverScope && recoverScope.length > 0) q = q.in('id', recoverScope);
     const { data: sites } = await q;
     const siteIds = (sites || []).map((s) => s.id);
     if (siteIds.length === 0) {
@@ -361,6 +365,18 @@ function getPublicBaseUrl(request) {
   return null;
 }
 
+// Resolve the scoped site IDs from a schedule's config. Schedules created
+// via the new multi-select picker store config.siteIds (array). Older
+// schedules used config.siteId (single id). Anything missing means the
+// schedule applies to every enabled site in the team.
+function resolveScopedSiteIds(cfg) {
+  if (Array.isArray(cfg?.siteIds) && cfg.siteIds.length > 0) {
+    return cfg.siteIds.map(Number).filter((n) => Number.isFinite(n));
+  }
+  if (cfg?.siteId) return [Number(cfg.siteId)];
+  return null;
+}
+
 // Vercel preview deployment URLs look like:
 //   <project>-<random-hash>-<org-slug>.vercel.app  e.g. webpulse-n0idobgrw-pials-projects-xyz.vercel.app
 // Production aliases are shorter: webpulse-phi.vercel.app
@@ -374,7 +390,7 @@ function looksLikePreviewUrl(host) {
 
 async function handleRecurrence(supabase, schedule) {
   const {
-    frequency, scheduledAt, notifySlack, notifyEmail, notifyAI, createdBy, kind, siteId,
+    frequency, scheduledAt, notifySlack, notifyEmail, notifyAI, createdBy, kind, siteId, siteIds,
   } = schedule.config;
   if (!frequency || frequency === 'once') return;
 
@@ -403,7 +419,13 @@ async function handleRecurrence(supabase, schedule) {
     createdBy,
   };
   if (kind) nextConfig.kind = kind;
-  if (siteId) nextConfig.siteId = siteId;
+  // Preserve scope: prefer siteIds (multi-site), fall back to legacy siteId
+  if (Array.isArray(siteIds) && siteIds.length > 0) {
+    nextConfig.siteIds = siteIds;
+    if (siteIds.length === 1) nextConfig.siteId = siteIds[0]; // legacy mirror
+  } else if (siteId) {
+    nextConfig.siteId = siteId;
+  }
 
   const { data: newSchedule, error } = await supabase
     .from('integrations')

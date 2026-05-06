@@ -62,7 +62,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { teamId, scheduledAt, frequency, notifySlack, notifyEmail, notifyAI, kind, siteId } = body;
+    const { teamId, scheduledAt, frequency, notifySlack, notifyEmail, notifyAI, kind, siteId, siteIds } = body;
 
     if (!teamId) {
       return NextResponse.json({ error: 'teamId is required' }, { status: 400 });
@@ -82,24 +82,34 @@ export async function POST(request) {
       );
     }
 
-    // Validate siteId if present — must belong to the same team. Reports
-    // (kind !== 'scan') are always team-wide; siteId is silently ignored.
-    let validatedSiteId = null;
-    if (siteId && (!kind || kind === 'scan')) {
-      const service = createServiceSupabase();
-      const { data: siteRow, error: siteErr } = await service
-        .from('sites')
-        .select('id, team_id')
-        .eq('id', siteId)
-        .maybeSingle();
-      if (siteErr) throw siteErr;
-      if (!siteRow || siteRow.team_id !== teamId) {
-        return NextResponse.json(
-          { error: 'siteId does not belong to this team' },
-          { status: 400 }
-        );
+    // Validate siteIds (preferred) or fall back to siteId (legacy single-site
+    // body shape). Reports are always team-wide so we silently ignore both.
+    // Empty array / null / undefined → team-wide scope.
+    let validatedSiteIds = null;
+    if (!kind || kind === 'scan') {
+      const incoming = Array.isArray(siteIds)
+        ? siteIds.filter((n) => Number.isFinite(Number(n))).map(Number)
+        : siteId
+        ? [Number(siteId)]
+        : [];
+
+      if (incoming.length > 0) {
+        const service = createServiceSupabase();
+        const { data: siteRows, error: siteErr } = await service
+          .from('sites')
+          .select('id, team_id')
+          .in('id', incoming);
+        if (siteErr) throw siteErr;
+
+        const wrongTeam = (siteRows || []).filter((s) => s.team_id !== teamId);
+        if (wrongTeam.length > 0 || (siteRows || []).length !== incoming.length) {
+          return NextResponse.json(
+            { error: 'One or more siteIds do not belong to this team' },
+            { status: 400 }
+          );
+        }
+        validatedSiteIds = siteRows.map((s) => s.id);
       }
-      validatedSiteId = siteRow.id;
     }
 
     // Validate the date
@@ -126,10 +136,15 @@ export async function POST(request) {
       config.notifyAI = false;
     }
 
-    // Persist siteId only when provided AND this is a scan schedule.
-    // Empty/null = team-wide (existing behavior, preserved).
-    if (validatedSiteId) {
-      config.siteId = validatedSiteId;
+    // Persist siteIds when one or more sites are scoped. Empty/null on the
+    // config object = team-wide (existing behavior, preserved). For
+    // backwards compat when only one site is selected, write siteId too so
+    // older code paths that only know the singular form still match.
+    if (validatedSiteIds && validatedSiteIds.length > 0) {
+      config.siteIds = validatedSiteIds;
+      if (validatedSiteIds.length === 1) {
+        config.siteId = validatedSiteIds[0];
+      }
     }
 
     const service = createServiceSupabase();
