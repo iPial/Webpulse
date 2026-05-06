@@ -128,11 +128,22 @@ export default async function HistoryPage({ searchParams }) {
             {latest?.performance ?? '—'}
           </span>
           <span className="text-[12px] text-muted">Mobile, latest month</span>
-          {perfDeltaPill && (
-            <Pill variant={perfDeltaPill.variant} className="self-start mt-2">
-              {perfDeltaPill.text}
-            </Pill>
-          )}
+          <div className="flex items-center gap-2 flex-wrap mt-2">
+            {perfDeltaPill && (
+              <Pill variant={perfDeltaPill.variant} className="self-start">
+                {perfDeltaPill.text}
+              </Pill>
+            )}
+            {/* Direct shortcut to the live site detail page — History
+                aggregates monthly snapshots, but users often want the most
+                recent full scan (categorized audits, AI fixes, vitals). */}
+            <Link
+              href={`/site/${currentSite.id}`}
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink hover:underline"
+            >
+              View latest scan →
+            </Link>
+          </div>
         </Card>
 
         <Card variant="lime" span={3}>
