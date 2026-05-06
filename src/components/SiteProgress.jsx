@@ -1,5 +1,6 @@
 import Card from '@/components/ui/Card';
 import LineChart from '@/components/ui/charts/LineChart';
+import { computeVitalsYMax, parseVitalSeconds } from '@/lib/chart-helpers';
 
 // Accepts all scan results for this site (newest first) and a strategy
 // ('mobile' or 'desktop'). Filters internally so the same component drives
@@ -40,19 +41,17 @@ export default function SiteProgress({ results, strategy = 'mobile' }) {
 
   // Core Web Vitals series — FCP + LCP in seconds, only for scans that
   // have parseable values. Same shape used by the History page CWV card.
-  const cwvRows = reversed.filter((r) => parseSeconds(r.fcp) != null || parseSeconds(r.lcp) != null);
+  const cwvRows = reversed.filter((r) => parseVitalSeconds(r.fcp) != null || parseVitalSeconds(r.lcp) != null);
   const cwvLabels = cwvRows.map((r) =>
     new Date(r.scanned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   );
   const cwvSeries = cwvRows.length
     ? [
-        { name: 'FCP', color: '#BEE5FF', points: cwvRows.map((r) => parseSeconds(r.fcp) ?? 0) },
-        { name: 'LCP', color: '#D6FF3C', points: cwvRows.map((r) => parseSeconds(r.lcp) ?? 0) },
+        { name: 'FCP', color: '#BEE5FF', points: cwvRows.map((r) => parseVitalSeconds(r.fcp) ?? 0) },
+        { name: 'LCP', color: '#D6FF3C', points: cwvRows.map((r) => parseVitalSeconds(r.lcp) ?? 0) },
       ]
     : [];
-  const cwvMax = cwvSeries.length
-    ? Math.max(25, Math.ceil(Math.max(...cwvSeries.flatMap((s) => s.points)) + 2))
-    : 25;
+  const cwvMax = computeVitalsYMax(cwvSeries);
 
   return (
     <Card padding="sm">
@@ -157,18 +156,6 @@ export default function SiteProgress({ results, strategy = 'mobile' }) {
   );
 }
 
-// Parse a vital displayValue like "6.8 s", "2,170 ms", or "0.043" into
-// a numeric seconds value. CLS-style unitless values fall through as-is.
-// Used to feed the Core Web Vitals trend chart from raw scan_results rows.
-function parseSeconds(displayValue) {
-  if (!displayValue) return null;
-  const s = String(displayValue).toLowerCase().replace(/,/g, '').trim();
-  const n = parseFloat(s);
-  if (isNaN(n)) return null;
-  if (s.endsWith('ms')) return n / 1000;
-  if (s.endsWith('s')) return n;
-  return n; // unitless — caller decides how to interpret
-}
 
 function DeltaRow({ label, current, prev, week, month }) {
   const color =

@@ -9,6 +9,7 @@ import Card from '@/components/ui/Card';
 import Pill from '@/components/ui/Pill';
 import BentoGrid from '@/components/ui/BentoGrid';
 import LineChart from '@/components/ui/charts/LineChart';
+import { computeVitalsYMax } from '@/lib/chart-helpers';
 
 export default async function HistoryPage({ searchParams }) {
   const resolvedParams = await searchParams;
@@ -212,7 +213,7 @@ export default async function HistoryPage({ searchParams }) {
               series={vitalsSeries}
               labels={vitalsLabels}
               min={0}
-              max={Math.max(25, ...vitalsSeries.flatMap((s) => s.points)) + 2}
+              max={computeVitalsYMax(vitalsSeries)}
               height={180}
               background="ink"
               className="mt-4"
