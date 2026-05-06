@@ -4,7 +4,7 @@ import Pill from '@/components/ui/Pill';
 import Logo from '@/components/ui/Logo';
 import LineChart from '@/components/ui/charts/LineChart';
 
-export default function SiteReportCard({ site, mobile, desktop, prevMobile, history = [] }) {
+export default function SiteReportCard({ site, mobile, desktop, prevMobile, prevDesktop, history = [] }) {
   if (!mobile && !desktop) return null;
   const primary = mobile || desktop;
   const audits = primary.audits || {};
@@ -12,10 +12,17 @@ export default function SiteReportCard({ site, mobile, desktop, prevMobile, hist
   const improvementCount = audits.improvement?.length || 0;
   const optionalCount = audits.optional?.length || 0;
 
+  // Mobile deltas (used in scores + footer summary — mobile is primary)
   const perfDelta = mobile && prevMobile ? mobile.performance - prevMobile.performance : null;
   const a11yDelta = mobile && prevMobile ? mobile.accessibility - prevMobile.accessibility : null;
   const bpDelta = mobile && prevMobile ? mobile.best_practices - prevMobile.best_practices : null;
   const seoDelta = mobile && prevMobile ? mobile.seo - prevMobile.seo : null;
+
+  // Desktop deltas (used in the desktop scores row)
+  const dPerfDelta = desktop && prevDesktop ? desktop.performance - prevDesktop.performance : null;
+  const dA11yDelta = desktop && prevDesktop ? desktop.accessibility - prevDesktop.accessibility : null;
+  const dBpDelta = desktop && prevDesktop ? desktop.best_practices - prevDesktop.best_practices : null;
+  const dSeoDelta = desktop && prevDesktop ? desktop.seo - prevDesktop.seo : null;
 
   const hasWPRocket = site.tags?.includes('wp-rocket');
 
@@ -63,6 +70,7 @@ export default function SiteReportCard({ site, mobile, desktop, prevMobile, hist
       {/* Body */}
       <div className="relative z-20 pointer-events-none grid grid-cols-1 md:grid-cols-[minmax(0,380px)_1fr] divide-y md:divide-y-0 md:divide-x divide-line">
         <div className="p-5 space-y-4">
+          {/* Mobile scores */}
           <div>
             <p className="text-[10px] text-muted uppercase tracking-wider mb-2 font-semibold">
               📱 Mobile
@@ -76,6 +84,25 @@ export default function SiteReportCard({ site, mobile, desktop, prevMobile, hist
               </div>
             ) : (
               <p className="text-[12px] text-muted">No mobile scan yet</p>
+            )}
+          </div>
+
+          {/* Desktop scores — only render when desktop data exists. Most
+              sites have both, but a brand-new site might only have one
+              strategy scanned so far. */}
+          <div>
+            <p className="text-[10px] text-muted uppercase tracking-wider mb-2 font-semibold">
+              🖥️ Desktop
+            </p>
+            {desktop ? (
+              <div className="grid grid-cols-4 gap-2">
+                <ScoreCell label="Perf" value={desktop.performance} delta={dPerfDelta} />
+                <ScoreCell label="A11y" value={desktop.accessibility} delta={dA11yDelta} />
+                <ScoreCell label="BP" value={desktop.best_practices} delta={dBpDelta} />
+                <ScoreCell label="SEO" value={desktop.seo} delta={dSeoDelta} />
+              </div>
+            ) : (
+              <p className="text-[12px] text-muted">No desktop scan yet</p>
             )}
           </div>
 

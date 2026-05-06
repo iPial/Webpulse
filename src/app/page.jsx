@@ -124,13 +124,14 @@ export default async function OverviewPage() {
 
       {/* Per-site cards */}
       <div className="flex flex-col gap-4">
-        {sites.map(({ site, mobile, desktop, prevMobile }) => (
+        {sites.map(({ site, mobile, desktop, prevMobile, prevDesktop }) => (
           <SiteReportCard
             key={site.id}
             site={site}
             mobile={mobile}
             desktop={desktop}
             prevMobile={prevMobile}
+            prevDesktop={prevDesktop}
             history={historyBySite[site.id] || []}
           />
         ))}
