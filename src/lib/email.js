@@ -272,18 +272,9 @@ export function buildReportHTML(sites, { baseUrl = '', aiSummariesBySiteId = nul
     if (r?.audits?.critical) totalCritical += r.audits.critical.length;
   }
 
-  const dashboardButton = baseUrl
-    ? `
-      <div style="text-align:center; margin:16px 0 24px 0;">
-        <a href="${baseUrl}" style="display:inline-block; padding:12px 28px; background:#2563EB; color:#fff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:600;">📊 Open Dashboard →</a>
-      </div>
-    `
-    : '';
-
-  const dashboardLink = baseUrl
-    ? `<a href="${baseUrl}" style="color:#60A5FA; text-decoration:none;">Open Dashboard →</a>`
-    : '';
-
+  // No "Open Dashboard" button or footer link — the dashboard requires
+  // login. Each per-site card already links to /site/{id}, which renders
+  // publicly when is_public=true.
   const cards = sites
     .map((s) => siteCard(s, baseUrl, aiSummariesBySiteId?.[s.site.id] || null))
     .join('');
@@ -297,7 +288,7 @@ export function buildReportHTML(sites, { baseUrl = '', aiSummariesBySiteId = nul
     </head>
     <body style="margin: 0; padding: 0; background-color: #0B1120; color: #E5E7EB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
       <div style="max-width: 720px; margin: 0 auto; padding: 32px 16px;">
-        <div style="margin-bottom: 8px;">
+        <div style="margin-bottom: 16px;">
           <h1 style="color: #F9FAFB; font-size: 22px; margin: 0 0 6px 0;">📊 Webpulse Scan Report</h1>
           <p style="color: #9CA3AF; font-size: 14px; margin: 0;">
             <strong style="color:#F3F4F6;">${sites.length}</strong> site${sites.length !== 1 ? 's' : ''} scanned
@@ -311,15 +302,12 @@ export function buildReportHTML(sites, { baseUrl = '', aiSummariesBySiteId = nul
           </p>
         </div>
 
-        ${dashboardButton}
-
         ${cards}
 
         <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #374151; text-align:center;">
-          <p style="color: #6B7280; font-size: 12px; margin: 0 0 8px 0;">
+          <p style="color: #6B7280; font-size: 12px; margin: 0;">
             Sent by Webpulse &middot; ${new Date().toISOString().slice(0, 10)}
           </p>
-          ${dashboardLink ? `<p style="margin:0;">${dashboardLink}</p>` : ''}
         </div>
       </div>
     </body>
@@ -357,14 +345,8 @@ export function buildTrendEmailHTML(trendBySiteId, { baseUrl = '', windowDays = 
 
   const totalScans = sites.reduce((acc, s) => acc + (s.thisWindow?.scanCount || s.thisWeek?.scanCount || 0), 0);
 
-  const dashboardButton = baseUrl
-    ? `
-      <div style="margin: 16px 0 24px 0;">
-        <a href="${baseUrl}/history" style="display:inline-block; background-color:#3B82F6; color:white; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px;">Open History →</a>
-      </div>
-    `
-    : '';
-
+  // No "Open History" / "Open Dashboard" buttons — those routes
+  // require login. Per-site cards link to the public site report.
   const cards = sites.map((entry) => trendSiteCard(entry, baseUrl)).join('');
 
   return `
@@ -377,19 +359,17 @@ export function buildTrendEmailHTML(trendBySiteId, { baseUrl = '', windowDays = 
     <body style="margin: 0; padding: 0; background-color: #0B1120; color: #E5E7EB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
       <div style="max-width: 720px; margin: 0 auto; padding: 32px 16px;">
         <h1 style="color: #F9FAFB; font-size: 22px; margin: 0 0 6px 0;">📈 Webpulse ${cadenceLabel}</h1>
-        <p style="color: #9CA3AF; font-size: 14px; margin: 0;">
+        <p style="color: #9CA3AF; font-size: 14px; margin: 0 0 16px 0;">
           ${escapeHTML(dateRange)} &nbsp;·&nbsp; <strong style="color:#F3F4F6;">${sites.length}</strong> site${sites.length !== 1 ? 's' : ''}
           ${totalScans > 0 ? `&nbsp;·&nbsp; <strong style="color:#F3F4F6;">${totalScans}</strong> scans` : ''}
         </p>
 
-        ${dashboardButton}
         ${cards}
 
         <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #374151; text-align:center;">
-          <p style="color: #6B7280; font-size: 12px; margin: 0 0 8px 0;">
+          <p style="color: #6B7280; font-size: 12px; margin: 0;">
             Sent by Webpulse &middot; ${new Date().toISOString().slice(0, 10)}
           </p>
-          ${baseUrl ? `<p style="margin:0;"><a href="${baseUrl}" style="color:#60A5FA; text-decoration:none;">Open Dashboard →</a></p>` : ''}
         </div>
       </div>
     </body>

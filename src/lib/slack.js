@@ -112,28 +112,20 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
     text: { type: 'plain_text', text: `📊 Webpulse Scan — ${dateStr}`, emoji: true },
   });
 
-  // 2) Summary row with Open Dashboard button
+  // 2) Summary row. We deliberately do NOT add an "Open Dashboard"
+  //    accessory button here — the dashboard requires login, which is
+  //    not useful for most Slack readers. Each per-site card below has
+  //    its own "View Full Report" button pointing to /site/{id}, which
+  //    renders publicly when the site has is_public=true.
   const summaryText =
     `*${totalSites}* site${totalSites !== 1 ? 's' : ''} scanned` +
     `  ·  ${totalCritical > 0 ? `🔴 *${totalCritical}* critical issues` : '✅ No critical issues'}` +
     (aiSummariesBySiteId ? '  ·  🤖 AI analysis included' : '');
 
-  const summaryBlock = {
+  blocks.push({
     type: 'section',
     text: { type: 'mrkdwn', text: summaryText },
-  };
-  if (baseUrl) {
-    summaryBlock.accessory = {
-      type: 'button',
-      text: { type: 'plain_text', text: 'Open Dashboard', emoji: true },
-      // No action_id: link-only buttons that don't need interactivity callbacks.
-      // Including action_id triggers Slack's "this app is not configured to
-      // handle interactive responses" warning on hover.
-      url: baseUrl,
-      style: 'primary',
-    };
-  }
-  blocks.push(summaryBlock);
+  });
   blocks.push({ type: 'divider' });
 
   // 3) Per-site scorecard
@@ -172,15 +164,14 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: regLines.join('\n') } });
   }
 
-  // 5) Footer
+  // 5) Footer — timestamp only. No "Open Dashboard" link; per-site
+  //    cards already link to their own public report.
   blocks.push({
     type: 'context',
     elements: [
       {
         type: 'mrkdwn',
-        text:
-          `🕒 ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC` +
-          (baseUrl ? `  ·  <${baseUrl}|Open Dashboard>` : ''),
+        text: `🕒 ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
       },
     ],
   });
@@ -327,7 +318,9 @@ function pushAIFixesSection(blocks, site, ai, baseUrl) {
 
 export function buildDailySummaryText(siteResults, regressions, { baseUrl = '', aiSummariesBySiteId = null } = {}) {
   const lines = ['*📊 Webpulse Scan Report*'];
-  if (baseUrl) lines.push(`<${baseUrl}|Open Dashboard>`);
+  // No "Open Dashboard" header link — per-site report URLs are emitted
+  // below for each site, which work without login when the site is
+  // public.
   lines.push('');
 
   for (const [, { site, results, previous = {} }] of siteResults) {
@@ -416,17 +409,8 @@ export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, per
       text: `${dateRange}  ·  *${sites.length}* site${sites.length !== 1 ? 's' : ''}  ·  *${totalScans}* scans this week`,
     },
   };
-  if (baseUrl) {
-    summaryBlock.accessory = {
-      type: 'button',
-      text: { type: 'plain_text', text: 'Open Dashboard', emoji: true },
-      // No action_id: link-only buttons that don't need interactivity callbacks.
-      // Including action_id triggers Slack's "this app is not configured to
-      // handle interactive responses" warning on hover.
-      url: baseUrl,
-      style: 'primary',
-    };
-  }
+  // No "Open Dashboard" accessory — see buildDailySummary for rationale.
+  // Per-site cards below carry their own report links.
   blocks.push(summaryBlock);
   blocks.push({ type: 'divider' });
 
@@ -483,13 +467,16 @@ export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, per
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } });
 
     if (baseUrl) {
+      // Link to the public site report (which works without login when
+      // the site is is_public=true), not /history — the history page
+      // requires authentication.
       blocks.push({
         type: 'actions',
         elements: [
           {
             type: 'button',
-            text: { type: 'plain_text', text: 'View History', emoji: true },
-            url: `${baseUrl}/history?site=${entry.site.id}`,
+            text: { type: 'plain_text', text: 'View Report', emoji: true },
+            url: `${baseUrl}/site/${entry.site.id}`,
           },
         ],
       });
@@ -520,14 +507,14 @@ export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, per
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: highlights.join('\n') } });
   }
 
-  // 5) Footer
-  const footerParts = [
-    `🕒 Report period: ${startDate.toISOString().slice(0, 16).replace('T', ' ')} → ${endDate.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
-  ];
-  if (baseUrl) footerParts.push(`<${baseUrl}|Open Dashboard>`);
+  // 5) Footer — period only. No "Open Dashboard" link; per-site
+  //    cards already link to public site reports.
   blocks.push({
     type: 'context',
-    elements: [{ type: 'mrkdwn', text: footerParts.join('  ·  ') }],
+    elements: [{
+      type: 'mrkdwn',
+      text: `🕒 Report period: ${startDate.toISOString().slice(0, 16).replace('T', ' ')} → ${endDate.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+    }],
   });
 
   if (blocks.length > 49) {
