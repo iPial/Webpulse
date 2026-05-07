@@ -1,6 +1,5 @@
 import { cookies } from 'next/headers';
-import Link from 'next/link';
-import { ensureTeam, getLatestResults, getRecentActivity, getSiteHistoryForOverview } from '@/lib/db';
+import { ensureTeam, getLatestResults, getRecentActivity, getSiteHistoryForOverview, getSites } from '@/lib/db';
 import { createServerSupabase } from '@/lib/supabase';
 import SiteReportCard from '@/components/SiteReportCard';
 import OverviewActions from '@/components/OverviewActions';
@@ -9,6 +8,7 @@ import PageShell from '@/components/ui/PageShell';
 import Topbar from '@/components/ui/Topbar';
 import Card from '@/components/ui/Card';
 import Pill from '@/components/ui/Pill';
+import EmptyHero from '@/components/ui/EmptyHero';
 
 export default async function OverviewPage() {
   const cookieStore = await cookies();
@@ -20,16 +20,23 @@ export default async function OverviewPage() {
   if (!user) {
     return (
       <PageShell>
-        <EmptyState message="Sign in to view your dashboard." />
+        <Topbar eyebrow={todayEyebrow()} title="Overview" />
+        <EmptyHero
+          icon={<LockIcon />}
+          title="Sign in to view your dashboard"
+          message="Webpulse tracks PageSpeed scores, Core Web Vitals, and AI-suggested fixes for every site in your team."
+          primaryCta={{ label: 'Sign in', href: '/login' }}
+        />
       </PageShell>
     );
   }
 
   const team = await ensureTeam(cookieStore);
-  const [results, activity, historyBySite] = await Promise.all([
+  const [results, activity, historyBySite, allSites] = await Promise.all([
     getLatestResults(cookieStore, team.id),
     getRecentActivity(cookieStore, team.id),
     getSiteHistoryForOverview(cookieStore, team.id, { days: 14 }),
+    getSites(cookieStore, team.id),
   ]);
 
   // Group results by site with current + previous
@@ -57,10 +64,35 @@ export default async function OverviewPage() {
   const sites = Array.from(siteMap.values());
 
   if (sites.length === 0) {
+    // Two flavors of empty state:
+    //   • Truly fresh account → no sites at all → onboarding hero with steps
+    //   • Sites added but never scanned → "run your first scan" prompt
+    const isBrandNew = (allSites || []).length === 0;
     return (
       <PageShell>
         <Topbar eyebrow={todayEyebrow()} title="Overview" />
-        <EmptyState message="No scan results yet. Add sites in Settings and run your first scan." showSetup />
+        {isBrandNew ? (
+          <EmptyHero
+            icon={<BoltIcon />}
+            eyebrow="Welcome to Webpulse"
+            title="Let's get your first scan running"
+            message="Add a website and we'll start tracking PageSpeed scores, Core Web Vitals, and AI-suggested fixes — every week, automatically."
+            primaryCta={{ label: 'Add your first site', href: '/settings' }}
+            secondaryCta={{ label: 'Set up integrations', href: '/settings/integrations' }}
+            steps={[
+              { n: 1, title: 'Add a site', body: 'Drop in a URL and an optional logo. Takes about 10 seconds.' },
+              { n: 2, title: 'Pick a schedule', body: 'Daily or weekly. We handle dispatch and retries for you.' },
+              { n: 3, title: 'Get reports', body: 'Slack, email, or in-app — with AI-suggested fixes per issue.' },
+            ]}
+          />
+        ) : (
+          <EmptyHero
+            icon={<BoltIcon />}
+            title="No scan results yet"
+            message="Your sites are added but haven't been scanned. Run your first scan from Settings or wait for the next scheduled run."
+            primaryCta={{ label: 'Go to Settings', href: '/settings' }}
+          />
+        )}
       </PageShell>
     );
   }
@@ -150,23 +182,18 @@ function todayEyebrow() {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
-function EmptyState({ message, showSetup }) {
+function BoltIcon() {
   return (
-    <Card variant="hairline" className="text-center py-12 mt-8">
-      <div className="mx-auto w-[56px] h-[56px] rounded-full bg-paper-2 grid place-items-center mb-3">
-        <svg className="w-7 h-7 text-muted" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-        </svg>
-      </div>
-      <p className="text-[14px] text-muted mb-4">{message}</p>
-      {showSetup && (
-        <Link
-          href="/settings"
-          className="inline-flex items-center px-4 py-2 rounded-r-pill bg-ink text-surface text-[13px] font-medium shadow-ink hover:brightness-110"
-        >
-          Go to Settings
-        </Link>
-      )}
-    </Card>
+    <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+    </svg>
   );
 }
