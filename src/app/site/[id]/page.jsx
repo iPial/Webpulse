@@ -15,6 +15,7 @@ import SiteDetailActions from '@/components/SiteDetailActions';
 import PageShell from '@/components/ui/PageShell';
 import Card from '@/components/ui/Card';
 import Logo from '@/components/ui/Logo';
+import LocalTime from '@/components/ui/LocalTime';
 
 export default async function SiteDetailPage({ params }) {
   const { id } = await params;
@@ -109,12 +110,7 @@ export default async function SiteDetailPage({ params }) {
           <div className="flex items-center gap-6 text-[12px] flex-wrap">
             <div>
               <span className="text-muted">Last scan: </span>
-              <span
-                className="text-ink-2 font-mono"
-                title={new Date(lastScanned).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'long' })}
-              >
-                {new Date(lastScanned).toLocaleString()}
-              </span>
+              <LocalTime iso={lastScanned} format="default" className="text-ink-2 font-mono" />
             </div>
             <div>
               <span className="text-muted">Total scans: </span>

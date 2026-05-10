@@ -1,6 +1,7 @@
 import { formatDelta, deltaTextColor } from '@/lib/deltas';
 import Card from '@/components/ui/Card';
 import Pill from '@/components/ui/Pill';
+import LocalTime from '@/components/ui/LocalTime';
 
 export default function ScanHistoryTable({ results }) {
   if (!results || results.length === 0) return null;
@@ -43,22 +44,8 @@ export default function ScanHistoryTable({ results }) {
                   key={row.id}
                   className="border-b border-line/60 last:border-0 hover:bg-paper-2/40 transition-colors"
                 >
-                  <td
-                    className="px-3 py-2.5 font-mono text-[12px] text-muted whitespace-nowrap"
-                    // Compact display + full unambiguous local-time tooltip on
-                    // hover (date, time, seconds, timezone name) so the user can
-                    // confirm at a glance that we're in their zone, not UTC.
-                    title={new Date(row.scanned_at).toLocaleString(undefined, {
-                      dateStyle: 'medium',
-                      timeStyle: 'long',
-                    })}
-                  >
-                    {new Date(row.scanned_at).toLocaleString(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                  <td className="px-3 py-2.5 font-mono text-[12px] text-muted whitespace-nowrap">
+                    <LocalTime iso={row.scanned_at} format="compact" />
                   </td>
                   <td className="px-3 py-2.5 text-center">
                     <Pill variant={row.strategy === 'mobile' ? 'ink' : 'default'}>

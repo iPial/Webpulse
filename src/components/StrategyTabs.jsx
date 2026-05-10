@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import ScoreRing from '@/components/ui/ScoreRing';
 import VitalsPanel from './VitalsPanel';
+import LocalTime from '@/components/ui/LocalTime';
 import AuditList from './AuditList';
 import Card from '@/components/ui/Card';
 
@@ -78,11 +79,8 @@ export default function StrategyTabs({ mobile, desktop, strategy: controlledStra
             </div>
           </div>
 
-          <p
-            className="text-[12px] text-muted"
-            title={new Date(result.scanned_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'long' })}
-          >
-            Scanned {new Date(result.scanned_at).toLocaleString()}
+          <p className="text-[12px] text-muted">
+            Scanned <LocalTime iso={result.scanned_at} format="default" />
           </p>
         </div>
       )}
