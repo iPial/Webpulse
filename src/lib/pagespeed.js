@@ -44,11 +44,13 @@ export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
   try {
     return await attempt(timeoutMs);
   } catch (err) {
-    // Only retry on transient 5xx (Lighthouse crashes). Timeouts are not
-    // retried — if PSI couldn't finish in 295s, a retry won't either.
+    // Retry on any transient network/server failure. Timeouts of the
+    // *whole* attempt budget aren't retried (no time left), but mid-
+    // request socket closes by Google's LB are exactly what retries
+    // are for — they almost always succeed on the second go.
     const is5xx = err?.status && err.status >= 500;
-    const isTransientMessage = /Lighthouse returned error|fetch failed|ECONNRESET/i.test(String(err?.message || ''));
-    if (!is5xx && !isTransientMessage) throw err;
+    const isTransient = isTransientError(err);
+    if (!is5xx && !isTransient) throw err;
 
     // Don't retry if we'd blow past Vercel's 300s function budget.
     const elapsed = Date.now() - startedAt;
@@ -60,6 +62,38 @@ export async function runPageSpeedAudit(url, strategy = 'mobile', opts = {}) {
     result._retried = 1;
     return result;
   }
+}
+
+// Walk the message + code + cause chain looking for known-transient
+// signatures. Undici raises `TypeError: terminated` with the useful
+// detail (e.g. `SocketError: other side closed`, `UND_ERR_SOCKET`)
+// hanging off `err.cause`, so we have to look in both places.
+const TRANSIENT_PATTERNS = [
+  /Lighthouse returned error/i,
+  /fetch failed/i,
+  /^terminated$/i,             // undici fetch abort wrapper
+  /other side closed/i,        // SocketError detail
+  /ECONNRESET/i,
+  /ETIMEDOUT/i,
+  /EPIPE/i,
+  /UND_ERR_SOCKET/i,
+  /UND_ERR_CONNECT_TIMEOUT/i,
+  /UND_ERR_HEADERS_TIMEOUT/i,
+  /UND_ERR_BODY_TIMEOUT/i,
+  /SocketError/i,
+];
+
+function isTransientError(err) {
+  for (let cur = err; cur; cur = cur.cause) {
+    const msg = String(cur?.message || '');
+    const code = String(cur?.code || '');
+    const name = String(cur?.name || '');
+    const haystack = `${name} ${code} ${msg}`;
+    if (TRANSIENT_PATTERNS.some((re) => re.test(haystack))) return true;
+    // Defensive: don't loop forever if cause chain self-references.
+    if (cur.cause === cur) break;
+  }
+  return false;
 }
 
 // Run both mobile and desktop audits for a site. Both use the retry-on-
