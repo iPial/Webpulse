@@ -109,7 +109,10 @@ export default async function SiteDetailPage({ params }) {
           <div className="flex items-center gap-6 text-[12px] flex-wrap">
             <div>
               <span className="text-muted">Last scan: </span>
-              <span className="text-ink-2 font-mono">
+              <span
+                className="text-ink-2 font-mono"
+                title={new Date(lastScanned).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'long' })}
+              >
                 {new Date(lastScanned).toLocaleString()}
               </span>
             </div>

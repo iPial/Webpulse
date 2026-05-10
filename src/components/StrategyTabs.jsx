@@ -78,7 +78,10 @@ export default function StrategyTabs({ mobile, desktop, strategy: controlledStra
             </div>
           </div>
 
-          <p className="text-[12px] text-muted">
+          <p
+            className="text-[12px] text-muted"
+            title={new Date(result.scanned_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'long' })}
+          >
             Scanned {new Date(result.scanned_at).toLocaleString()}
           </p>
         </div>
