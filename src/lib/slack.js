@@ -92,6 +92,19 @@ function countTotalCritical(siteResults) {
   return total;
 }
 
+// Format a Date as a Slack auto-localized timestamp. Slack renders
+// <!date^UNIX^FORMAT|FALLBACK> in each viewer's own timezone, so we
+// don't have to choose between UTC (correct everywhere, foreign to
+// most readers) and a single hard-coded zone.
+//
+// Format tokens: {date_short_pretty} → "Apr 23, 2026"
+//                {time}              → "3:45 PM" (or 24h depending on viewer pref)
+function slackLocalDate(date) {
+  const ts = Math.floor(date.getTime() / 1000);
+  const fallback = date.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  return `<!date^${ts}^{date_short_pretty} {time}|${fallback}>`;
+}
+
 function escapeSlack(text) {
   return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -164,14 +177,16 @@ export function buildDailySummary(siteResults, regressions, { baseUrl = '', aiSu
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: regLines.join('\n') } });
   }
 
-  // 5) Footer — timestamp only. No "Open Dashboard" link; per-site
-  //    cards already link to their own public report.
+  // 5) Footer — timestamp only. Use Slack's <!date^TS^...> token so
+  //    each viewer sees the time in their own local timezone instead
+  //    of UTC. Fallback string is shown if Slack can't resolve the
+  //    timezone (rare).
   blocks.push({
     type: 'context',
     elements: [
       {
         type: 'mrkdwn',
-        text: `🕒 ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
+        text: `🕒 ${slackLocalDate(new Date())}`,
       },
     ],
   });
@@ -507,13 +522,13 @@ export function buildTrendReport(trendBySiteId, { baseUrl = '', periodStart, per
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: highlights.join('\n') } });
   }
 
-  // 5) Footer — period only. No "Open Dashboard" link; per-site
-  //    cards already link to public site reports.
+  // 5) Footer — period only. Slack auto-localizes the timestamps so
+  //    each viewer sees the period in their own timezone.
   blocks.push({
     type: 'context',
     elements: [{
       type: 'mrkdwn',
-      text: `🕒 Report period: ${startDate.toISOString().slice(0, 16).replace('T', ' ')} → ${endDate.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+      text: `🕒 Report period: ${slackLocalDate(startDate)} → ${slackLocalDate(endDate)}`,
     }],
   });
 

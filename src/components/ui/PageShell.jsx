@@ -156,7 +156,9 @@ function LiveClock() {
   const localTime = now.toLocaleTimeString(undefined, {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   });
-  const utcTime = now.toUTCString().slice(17, 25);
+  const localDate = now.toLocaleDateString(undefined, {
+    weekday: 'short', month: 'short', day: 'numeric',
+  });
   const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').split('/').slice(-1)[0] || 'local';
 
   return (
@@ -165,7 +167,7 @@ function LiveClock() {
         <span className="font-mono text-[13px] text-ink tabular-nums">{localTime}</span>
         <span className="text-[10px] text-muted">{tz}</span>
       </div>
-      <div className="text-[10px] text-muted mt-[2px] font-mono">{utcTime} UTC</div>
+      <div className="text-[10px] text-muted mt-[2px]">{localDate}</div>
     </div>
   );
 }
